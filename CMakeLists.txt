@@ -5,6 +5,7 @@ include_directories(include)
 
 add_library(gc-lib SHARED
     src/gc.cpp
+    src/log.cpp
 )
 
 set_target_properties(gc-lib PROPERTIES LINKER_LANGUAGE CXX)

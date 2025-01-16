@@ -4,6 +4,7 @@
 #include <chrono>
 #include <pthread.h>
 #include "gc/gc.h"
+#include "gc/log.h"
 
 constexpr int PTRSIZE = sizeof(char*); 
 
@@ -35,6 +36,10 @@ struct Allocation
      */
     size_t size;
 
+    char* get_mem_block_end() {
+        return (char*)ptr + size;
+    }
+
 
     ~Allocation() {
         free(ptr);
@@ -49,7 +54,23 @@ private:
     bool quit_;
 
     void mark_alloc(Allocation* alloc_ptr) {
-        std::cout << "mark alloc:  size = " << alloc_ptr->size << std::endl;
+        if (alloc_ptr->tag == ETAG::USED)
+        {
+            return;
+        }
+        
+        LOG_PRINTF("Scaning block at heap [%p; %p] size: %lu ...", alloc_ptr->ptr, alloc_ptr->get_mem_block_end(), alloc_ptr->size);
+
+        alloc_ptr->tag = ETAG::USED;
+        for (char* ptr = (char*)alloc_ptr->ptr; ptr < alloc_ptr->get_mem_block_end(); ptr += PTRSIZE)
+        {
+            if (mem_reg_.contains(*(void**)ptr))
+            {
+                LOG_PRINTF("Found address %p located on heap at %p", *(void**)ptr, ptr);
+
+                mark_alloc(mem_reg_[*(void**)ptr]);
+            }
+        }
     }
 
     void mark_stack() {
@@ -58,10 +79,11 @@ private:
         {
             // TODO: throw some exception or do nothing
         }
-        
+        LOG_PRINTF("Scaning stack in [%p ; %p] ...", bos, tos);
         for(char* ptr = (char*)bos; ptr < tos; ptr += PTRSIZE) {
             if (mem_reg_.contains(*(void**)ptr))
             {
+                LOG_PRINTF("Found address %p located on stack at %p", *(void**)ptr, ptr);
                 mark_alloc(mem_reg_[*(void**)ptr]);
             }
         }
@@ -71,8 +93,24 @@ private:
         mark_stack();
     }
 
-    void run_sweep_phase() {
+    void sweep(Allocation* alloc_ptr) {
 
+    }
+
+    void run_sweep_phase() {
+        for (const auto& elem : mem_reg_)
+        {
+            if (elem.second->tag == ETAG::NONE)
+            {
+                delete elem.second;
+                mem_reg_.erase(elem.first);
+            }
+        }
+
+        for (auto &&elem : mem_reg_)
+        {
+            elem.second->tag = ETAG::NONE;
+        }
     }
 public:
     Garbage_collector(pthread_t tid) : tid_(tid) {
@@ -92,15 +130,16 @@ public:
             // TODO: throw some exception or do nothing
         }
         
-        delete mem_reg_[ptr];
+        // delete mem_reg_[ptr];
     }
 
     void run() {
         std::this_thread::sleep_for(std::chrono::seconds(5));
-        std::cout << "start gc" << std::endl;
+        LOG_PRINTF("Start gc");
         while (!quit_)
         {
             run_mark_phase();
+            run_sweep_phase();
             quit_ = true;
         }
     }
@@ -150,3 +189,9 @@ gc_holder* create_gc(pthread_t tid) {
     return holder;
 }
 
+
+
+// ??    -< 0x16fd0ed30
+
+
+// A_ptr -< 0x16fd0efa8
