@@ -1,8 +1,11 @@
 #include <iostream>
 #include <unordered_map>
 #include <thread>
+#include <chrono>
 #include <pthread.h>
 #include "gc/gc.h"
+
+constexpr int PTRSIZE = sizeof(char*); 
 
 enum class ETAG : uint8_t {
     USED,
@@ -40,14 +43,32 @@ struct Allocation
 
 class Garbage_collector{
 private:
-    pthread_t tid_;
-    std::unordered_map<void*, Allocation*> mem_reg_;
+    pthread_t tid_;                                     // tid of thread which gc track 
+    std::unordered_map<void*, Allocation*> mem_reg_;    
     bool stop_;
     bool quit_;
 
+    void mark_alloc(Allocation* alloc_ptr) {
+        std::cout << "mark alloc:  size = " << alloc_ptr->size << std::endl;
+    }
+
+    void mark_stack() {
+        void *bos, *tos;
+        if (get_stack_bounds(&bos, &tos, tid_) == 0)
+        {
+            // TODO: throw some exception or do nothing
+        }
+        
+        for(char* ptr = (char*)bos; ptr < tos; ptr += PTRSIZE) {
+            if (mem_reg_.contains(*(void**)ptr))
+            {
+                mark_alloc(mem_reg_[*(void**)ptr]);
+            }
+        }
+    }
 
     void run_mark_phase() {
-
+        mark_stack();
     }
 
     void run_sweep_phase() {
@@ -55,7 +76,7 @@ private:
     }
 public:
     Garbage_collector(pthread_t tid) : tid_(tid) {
-        stop_ = quit_ = true;
+        stop_ = quit_ = false;
     };
 
     void* malloc(size_t size) {
@@ -75,9 +96,12 @@ public:
     }
 
     void run() {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        std::cout << "start gc" << std::endl;
         while (!quit_)
         {
-            
+            run_mark_phase();
+            quit_ = true;
         }
     }
 
@@ -115,7 +139,7 @@ gc_holder* create_gc(pthread_t tid) {
     
     holder->malloc = &gc_malloc_wrapper;
     holder->free = &gc_free_wrapper;
-    holder->context = gc_ptr;
+    holder->ctx = gc_ptr;
 
     
     std::thread gc_thread([](Garbage_collector* gc_ptr){
