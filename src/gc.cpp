@@ -230,18 +230,18 @@ struct Gc
 };
 
 
-static std::unordered_map<pthread_t, Gc*> gc_reg_;
+static std::unordered_map<pthread_t, Gc*> gc_reg;
 static std::mutex gc_reg_mtx;
 
 void gc_create(pthread_t tid, void* bos) {
     std::lock_guard lock(gc_reg_mtx);
-    gc_reg_.insert({tid, new Gc});
-    gc_reg_[tid]->bos = bos;
+    gc_reg.insert({tid, new Gc});
+    gc_reg[tid]->bos = bos;
 }
 
 void* gc_malloc(pthread_t tid, size_t size) {
     std::lock_guard lock(gc_reg_mtx);
-    Gc* gc_ptr = gc_reg_[tid];
+    Gc* gc_ptr = gc_reg[tid];
 
     Allco_info* new_alloc = new Allco_info;
     new_alloc->size = size;
@@ -254,7 +254,7 @@ void* gc_malloc(pthread_t tid, size_t size) {
 
 void gc_free(pthread_t tid, void* ptr) {
     std::lock_guard lock(gc_reg_mtx);
-    Gc* gc_ptr = gc_reg_[tid];
+    Gc* gc_ptr = gc_reg[tid];
 
     if (gc_ptr->alloc_reg.contains(ptr)) {
         Allco_info* alloc_info = gc_ptr->alloc_reg[ptr];
@@ -262,6 +262,30 @@ void gc_free(pthread_t tid, void* ptr) {
 
         free(alloc_info->ptr);
         delete alloc_info;
+    }
+}
+
+void gc_sweep(Gc* gc) {
+    LOG_PRINTF("======== SWEEP PHASE ========");
+
+    for (auto itr = gc->alloc_reg.begin(); itr != gc->alloc_reg.end();)
+    {
+        Allco_info* info = itr->second;
+        if (info->tag == ETAG::NONE)
+       {
+            LOG_PRINTF("Sweep %p", itr->first);
+            free(itr->first);
+            delete info;
+
+            itr = gc->alloc_reg.erase(itr);
+        } else {
+            ++itr;
+        }
+    }
+    
+    for (const auto& alloc : gc->alloc_reg)
+    {
+        alloc.second->tag = ETAG::NONE;
     }
 }
 
@@ -284,7 +308,8 @@ void gc_mark_alloc(Gc* gc, Allco_info* alloc) {
 }
 
 void gc_mark_stack(Gc* gc, void* tos) {
-    
+    LOG_PRINTF("======== MARK PHASE ========");
+
     char* bos = (char*)gc->bos;
     for (char* ptr = (char*)tos; ptr < bos; ++ptr)
     {
@@ -298,8 +323,9 @@ void gc_mark_stack(Gc* gc, void* tos) {
 }
 
 void gc_run(pthread_t tid) {
-    if (gc_reg_.contains(tid))
+    if (gc_reg.contains(tid))
     {
-        gc_mark_stack(gc_reg_[tid], __builtin_frame_address(0));
+        gc_mark_stack(gc_reg[tid], __builtin_frame_address(0));
+        gc_sweep(gc_reg[tid]);
     }
 }
