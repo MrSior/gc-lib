@@ -227,6 +227,7 @@ struct Gc
 {
     std::unordered_map<void*, Allco_info*> alloc_reg;
     void* bos = NULL;
+    std::mutex gc_mtx;
 };
 
 
@@ -240,9 +241,11 @@ void gc_create(pthread_t tid, void* bos) {
 }
 
 void* gc_malloc(pthread_t tid, size_t size) {
-    std::lock_guard lock(gc_reg_mtx);
+    std::unique_lock lock(gc_reg_mtx);
     Gc* gc_ptr = gc_reg[tid];
+    lock.unlock();
 
+    std::lock_guard gc_lock(gc_ptr->gc_mtx);
     Allco_info* new_alloc = new Allco_info;
     new_alloc->size = size;
     new_alloc->tag = ETAG::NONE;
@@ -253,9 +256,11 @@ void* gc_malloc(pthread_t tid, size_t size) {
 }
 
 void gc_free(pthread_t tid, void* ptr) {
-    std::lock_guard lock(gc_reg_mtx);
+    std::unique_lock lock(gc_reg_mtx);
     Gc* gc_ptr = gc_reg[tid];
+    lock.unlock();
 
+    std::lock_guard gc_lock(gc_ptr->gc_mtx);
     if (gc_ptr->alloc_reg.contains(ptr)) {
         Allco_info* alloc_info = gc_ptr->alloc_reg[ptr];
         gc_ptr->alloc_reg.erase(ptr);
@@ -323,9 +328,19 @@ void gc_mark_stack(Gc* gc, void* tos) {
 }
 
 void gc_run(pthread_t tid) {
+    std::unique_lock lock(gc_reg_mtx);
     if (gc_reg.contains(tid))
     {
-        gc_mark_stack(gc_reg[tid], __builtin_frame_address(0));
-        gc_sweep(gc_reg[tid]);
+        Gc* gc_ptr = gc_reg[tid];
+        lock.unlock();
+
+        size_t offset = (char*)pthread_get_stackaddr_np(tid) - (char*)gc_ptr->bos;
+        void* tos = (char*)gc_ptr->bos - pthread_get_stacksize_np(tid) + offset;
+
+        // gc_mark_stack(gc_ptr, __builtin_frame_address(0));
+        gc_mark_stack(gc_ptr, tos);
+        gc_sweep(gc_ptr);
+        return;
     }
+    lock.unlock();
 }
