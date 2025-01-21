@@ -1,11 +1,11 @@
 #ifndef GC_PROJECT_GC_H
 #define GC_PROJECT_GC_H
-#include <sys/types.h>
-#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <sys/types.h>
+#include <pthread.h>
 
 #define GET_TID                             \
     pthread_self() 
@@ -26,6 +26,8 @@ extern "C" {
 #define GC_UNMARK_ROOT(var)                 \
     gc_unmark_root(__my_tid, (void*)&(var));
 
+#define GC_STOP                             \
+    gc_stop(__my_tid);
 
 void gc_create(pthread_t tid);
 
@@ -38,6 +40,8 @@ void gc_run(pthread_t tid);
 void gc_mark_root(pthread_t tid, void* addr);
 
 void gc_unmark_root(pthread_t tid, void* addr);
+
+void gc_stop(pthread_t tid);
 
 #ifdef __cplusplus
 }

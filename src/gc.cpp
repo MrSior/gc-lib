@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <thread>
 #include <csetjmp>
+#include <unistd.h>
 
 enum class ETAG {
     NONE,
@@ -22,21 +23,78 @@ struct Gc
     std::unordered_map<void*, Allco_info*> alloc_reg;
     std::unordered_set<void*> roots;
     std::mutex mtx;
+    std::atomic<bool> is_terminate = false;
 };
 
+void* gc_schedual_run(void* arg);
 
-std::unordered_map<pthread_t, Gc*> gc_reg;
-std::mutex gc_reg_mtx;
+class Gc_registry {
+    std::unordered_map<pthread_t, Gc*> reg_;
+    std::mutex reg_mtx_;
+public:
+    void add(pthread_t tid) {
+        std::lock_guard lock(reg_mtx_);
+        reg_.insert({tid, new Gc});
+
+        pthread_t gc_thread;
+        if (pthread_create(&gc_thread, NULL, gc_schedual_run, &tid))
+        {
+            perror("pthread_create failed");
+            return;
+        }
+        pthread_detach(gc_thread);
+    }
+
+    Gc* get(pthread_t tid) {
+        std::lock_guard lock(reg_mtx_);
+        if (reg_.contains(tid))
+        {
+            return reg_[tid];
+        }
+        throw std::invalid_argument("Try to get gc that doesn't exist");
+    }
+
+    void erase(pthread_t tid) {
+        std::lock_guard lock(reg_mtx_);
+        if (reg_.contains(tid))
+        {
+            reg_.erase(tid);
+        }
+        throw std::invalid_argument("Try to erase gc that doesn't exist");
+    }
+};
+
+static Gc_registry gc_reg;
+
+void* gc_schedual_run(void* arg) {
+    if (arg == NULL)
+    {
+        throw std::invalid_argument("Tid_ptr is NULL");
+    }
+    
+    pthread_t observed_tid = *static_cast<pthread_t*>(arg);
+    Gc* gc_ptr = gc_reg.get(observed_tid);
+    
+    while (!gc_ptr->is_terminate.load())
+    {
+        sleep(2);
+        gc_run(observed_tid);
+    }
+    LOG_PRINTF("GC KILLED");
+    return NULL;
+}
+
+
+// std::unordered_map<pthread_t, Gc*> gc_reg;
+// std::mutex gc_reg_mtx;
+
 
 void gc_create(pthread_t tid) {
-    std::lock_guard lock(gc_reg_mtx);
-    gc_reg.insert({tid, new Gc});
+    gc_reg.add(tid);
 }
 
 void* gc_malloc(pthread_t tid, size_t size) {
-    std::unique_lock lock(gc_reg_mtx);
-    Gc* gc_ptr = gc_reg[tid];
-    lock.unlock();
+    Gc* gc_ptr = gc_reg.get(tid);
 
     std::lock_guard gc_lock(gc_ptr->mtx);
     Allco_info* new_alloc = new Allco_info;
@@ -50,9 +108,7 @@ void* gc_malloc(pthread_t tid, size_t size) {
 }
 
 void gc_free(pthread_t tid, void* ptr) {
-    std::unique_lock lock(gc_reg_mtx);
-    Gc* gc_ptr = gc_reg[tid];
-    lock.unlock();
+    Gc* gc_ptr = gc_reg.get(tid);
 
     std::lock_guard gc_lock(gc_ptr->mtx);
     if (gc_ptr->alloc_reg.contains(ptr)) {
@@ -86,6 +142,7 @@ void gc_sweep(Gc* gc) {
     {
         alloc.second->tag = ETAG::NONE;
     }
+    LOG_PRINTF("=============================");
 }
 
 void gc_mark_alloc(Gc* gc, Allco_info* alloc) {
@@ -107,100 +164,38 @@ void gc_mark_alloc(Gc* gc, Allco_info* alloc) {
 }
 
 void gc_mark_root(pthread_t tid, void* addr) {
-    std::unique_lock lock(gc_reg_mtx);
-    if (gc_reg.contains(tid))
-    {
-        Gc* gc_ptr = gc_reg[tid];
-        lock.unlock();
-
-        std::lock_guard gc_lock(gc_ptr->mtx);
-        gc_ptr->roots.insert(addr);
-        return;
-    }
+    Gc* gc_ptr = gc_reg.get(tid);
+    std::lock_guard gc_lock(gc_ptr->mtx);
+    gc_ptr->roots.insert(addr);
 }
 
 void gc_unmark_root(pthread_t tid, void* addr) {
-    std::unique_lock lock(gc_reg_mtx);
-    if (gc_reg.contains(tid))
-    {
-        Gc* gc_ptr = gc_reg[tid];
-        lock.unlock();
-
-        std::lock_guard gc_lock(gc_ptr->mtx);
-        gc_ptr->roots.erase(addr);
-        return;
-    }
+    Gc* gc_ptr = gc_reg.get(tid);
+    std::lock_guard gc_lock(gc_ptr->mtx);
+    gc_ptr->roots.erase(addr);
 }
 
 
-// void gc_mark_stack(Gc* gc, void* tos) {
-//     LOG_PRINTF("======== MARK PHASE ========");
-
-//     char* bos = (char*)gc->bos;
-//     for (char* ptr = (char*)tos; ptr < bos; ++ptr)
-//     {
-//         if (gc->alloc_reg.contains(*(void**)ptr))
-//         {
-//             LOG_PRINTF("Found %p on STACK at %p", *(void**)ptr, ptr);
-//             gc_mark_alloc(gc, gc->alloc_reg[*(void**)ptr]);
-//         }
-//     }
-    
-// }
-
-// void gc_mark_registers(Gc* gc) {
-//     std::jmp_buf env;
-//     setjmp(env);
-
-//     for (char* ptr = (char*)&env; ptr < (char*)&env + sizeof(env); ++ptr) {
-//         if (gc->alloc_reg.contains(*(void**)ptr))
-//         {
-//             LOG_PRINTF("Found %p on REGISTERS at %p", *(void**)ptr, ptr);
-//             gc_mark_alloc(gc, gc->alloc_reg[*(void**)ptr]);
-//         }
-//     }
-// }
-
-// void gc_run(pthread_t tid) {
-//     std::unique_lock lock(gc_reg_mtx);
-//     if (gc_reg.contains(tid))
-//     {
-//         Gc* gc_ptr = gc_reg[tid];
-//         lock.unlock();
-
-//         size_t offset = (char*)pthread_get_stackaddr_np(tid) - (char*)gc_ptr->bos;
-//         void* tos = (char*)gc_ptr->bos - pthread_get_stacksize_np(tid) + offset + 1;
-
-//         gc_mark_registers(gc_ptr);
-//         gc_mark_stack(gc_ptr, __builtin_frame_address(0));
-//         // gc_mark_stack(gc_ptr, tos);
-//         gc_sweep(gc_ptr);
-//         return;
-//     }
-//     lock.unlock();
-// }
 
 void gc_run(pthread_t tid) {
-    std::unique_lock lock(gc_reg_mtx);
-    if (gc_reg.contains(tid))
+    Gc* gc_ptr = gc_reg.get(tid);
+    std::lock_guard gc_lock(gc_ptr->mtx);
+    for (const auto& ptr: gc_ptr->roots)
     {
-        Gc* gc_ptr = gc_reg[tid];
-        lock.unlock();
-        
-        std::lock_guard gc_lock(gc_ptr->mtx);
-        for (const auto& ptr: gc_ptr->roots)
+        if (gc_ptr->alloc_reg.contains(*(void**)ptr))
         {
-            if (gc_ptr->alloc_reg.contains(*(void**)ptr))
-            {
-                LOG_PRINTF("Found %p on STACK at %p", *(void**)ptr, ptr);
-                gc_mark_alloc(gc_ptr, gc_ptr->alloc_reg[*(void**)ptr]);   
-            } else {
-                LOG_PRINTF("ROOT %p lost address", ptr);
-            }
+            LOG_PRINTF("Found %p on STACK at %p", *(void**)ptr, ptr);
+            gc_mark_alloc(gc_ptr, gc_ptr->alloc_reg[*(void**)ptr]);   
+        } else {
+            LOG_PRINTF("ROOT %p lost address", ptr);
         }
-        
-        gc_sweep(gc_ptr);
-        return;
     }
-    lock.unlock();
+    
+    gc_sweep(gc_ptr);
+}
+
+void gc_stop(pthread_t tid) {
+    Gc* gc_ptr = gc_reg.get(tid);
+    gc_ptr->is_terminate.store(true);
+    gc_sweep(gc_ptr);
 }
