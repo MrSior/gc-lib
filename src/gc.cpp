@@ -21,7 +21,7 @@ struct Gc
 {
     std::unordered_map<void*, Allco_info*> alloc_reg;
     std::unordered_set<void*> roots;
-    std::mutex gc_mtx;
+    std::mutex mtx;
 };
 
 
@@ -38,7 +38,7 @@ void* gc_malloc(pthread_t tid, size_t size) {
     Gc* gc_ptr = gc_reg[tid];
     lock.unlock();
 
-    std::lock_guard gc_lock(gc_ptr->gc_mtx);
+    std::lock_guard gc_lock(gc_ptr->mtx);
     Allco_info* new_alloc = new Allco_info;
     new_alloc->size = size;
     new_alloc->tag = ETAG::NONE;
@@ -54,7 +54,7 @@ void gc_free(pthread_t tid, void* ptr) {
     Gc* gc_ptr = gc_reg[tid];
     lock.unlock();
 
-    std::lock_guard gc_lock(gc_ptr->gc_mtx);
+    std::lock_guard gc_lock(gc_ptr->mtx);
     if (gc_ptr->alloc_reg.contains(ptr)) {
         Allco_info* alloc_info = gc_ptr->alloc_reg[ptr];
         gc_ptr->alloc_reg.erase(ptr);
@@ -113,10 +113,10 @@ void gc_mark_root(pthread_t tid, void* addr) {
         Gc* gc_ptr = gc_reg[tid];
         lock.unlock();
 
+        std::lock_guard gc_lock(gc_ptr->mtx);
         gc_ptr->roots.insert(addr);
         return;
     }
-    lock.unlock();
 }
 
 void gc_unmark_root(pthread_t tid, void* addr) {
@@ -126,10 +126,10 @@ void gc_unmark_root(pthread_t tid, void* addr) {
         Gc* gc_ptr = gc_reg[tid];
         lock.unlock();
 
+        std::lock_guard gc_lock(gc_ptr->mtx);
         gc_ptr->roots.erase(addr);
         return;
     }
-    lock.unlock();
 }
 
 
@@ -187,22 +187,20 @@ void gc_run(pthread_t tid) {
         Gc* gc_ptr = gc_reg[tid];
         lock.unlock();
         
+        std::lock_guard gc_lock(gc_ptr->mtx);
         for (const auto& ptr: gc_ptr->roots)
         {
-            LOG_PRINTF("Found %p on STACK at %p", *(void**)ptr, ptr);
-            gc_mark_alloc(gc_ptr, gc_ptr->alloc_reg[*(void**)ptr]);
+            if (gc_ptr->alloc_reg.contains(*(void**)ptr))
+            {
+                LOG_PRINTF("Found %p on STACK at %p", *(void**)ptr, ptr);
+                gc_mark_alloc(gc_ptr, gc_ptr->alloc_reg[*(void**)ptr]);   
+            } else {
+                LOG_PRINTF("ROOT %p lost address", ptr);
+            }
         }
         
         gc_sweep(gc_ptr);
         return;
     }
     lock.unlock();
-}
-
-void* thread_gc_run(void* arg) {
-    pthread_t tid = *(pthread_t*)arg;
-
-    gc_run(tid);
-
-    return NULL;
 }

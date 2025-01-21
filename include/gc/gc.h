@@ -23,8 +23,9 @@ extern "C" {
 #define GC_MARK_ROOT(var)                   \
     gc_mark_root(__my_tid, (void*)&(var));
 
-#define GC_UNMARK_ROOT(var)                   \
+#define GC_UNMARK_ROOT(var)                 \
     gc_unmark_root(__my_tid, (void*)&(var));
+
 
 void gc_create(pthread_t tid);
 
@@ -34,9 +35,8 @@ void gc_free(pthread_t tid, void* ptr);
 
 void gc_run(pthread_t tid);
 
-void* thread_gc_run(void* arg);
-
 void gc_mark_root(pthread_t tid, void* addr);
+
 void gc_unmark_root(pthread_t tid, void* addr);
 
 #ifdef __cplusplus
