@@ -37,7 +37,8 @@ public:
         reg_.insert({tid, new Gc});
 
         pthread_t gc_thread;
-        if (pthread_create(&gc_thread, NULL, gc_schedual_run, &tid))
+        pthread_t* arg = new pthread_t(tid);
+        if (pthread_create(&gc_thread, NULL, gc_schedual_run, arg))
         {
             perror("pthread_create failed");
             return;
@@ -72,7 +73,8 @@ void* gc_schedual_run(void* arg) {
         throw std::invalid_argument("Tid_ptr is NULL");
     }
     
-    pthread_t observed_tid = *static_cast<pthread_t*>(arg);
+    pthread_t observed_tid = *(pthread_t*)(arg);
+    delete (pthread_t*)arg;
     Gc* gc_ptr = gc_reg.get(observed_tid);
     
     while (!gc_ptr->is_terminate.load())
@@ -83,11 +85,6 @@ void* gc_schedual_run(void* arg) {
     LOG_PRINTF("GC KILLED");
     return NULL;
 }
-
-
-// std::unordered_map<pthread_t, Gc*> gc_reg;
-// std::mutex gc_reg_mtx;
-
 
 void gc_create(pthread_t tid) {
     gc_reg.add(tid);
