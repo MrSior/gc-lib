@@ -10,6 +10,7 @@ add_library(gc-lib SHARED
 
 set_target_properties(gc-lib PROPERTIES LINKER_LANGUAGE CXX)
 target_compile_features(gc-lib PRIVATE cxx_std_20)
+# target_compile_options(gc-lib PRIVATE -O0)
 
 target_include_directories(gc-lib PUBLIC include)
 
