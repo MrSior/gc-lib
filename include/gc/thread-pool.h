@@ -24,6 +24,11 @@ public:
 
     template <typename Func, typename ...Args>
     int64_t add_task(const Func& task_func, Args&&... args) {
+        std::unique_lock add_lock(add_task_mtx_);
+        add_task_cv_.wait(add_lock, [this](){
+            return !block_tpool_.load();
+        });
+
         int64_t task_idx = last_idx_.fetch_add(1);
         
         std::lock_guard q_lock(q_mtx_);
@@ -47,11 +52,16 @@ public:
     }
 
     void wait_all() {
+        block_tpool_.store(true);
+
         std::unique_lock q_lock(q_mtx_);
         ct_cv_.wait(q_lock, [this]() -> bool {
             std::lock_guard task_lock(ct_mtx_);
             return queue_.empty() && completed_tasks_idx_.size() == last_idx_.load();
         });
+
+        block_tpool_.store(false);
+        add_task_cv_.notify_all();
     }
 
     void add_thread() {
@@ -110,4 +120,8 @@ private:
 
     std::atomic<bool> quite_ = false;
     std::atomic<int64_t> last_idx_ = 0;
+
+    std::condition_variable add_task_cv_;
+    std::mutex add_task_mtx_;
+    std::atomic<bool> block_tpool_ = false;
 };

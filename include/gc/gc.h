@@ -57,8 +57,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <pthread.h>
+#include <signal.h>
+#include <string.h>
+
+#define GLOBAL 1
+#define THREAD_LOCAL 0
 
 typedef struct gc_handler
 {
@@ -66,10 +73,53 @@ typedef struct gc_handler
     void(*gc_free)(pthread_t, void*);
     void(*mark_root)(pthread_t, void*);
     void(*unmark_root)(pthread_t, void*);
-    void(*collect)(pthread_t);
+    void(*collect)(pthread_t, int);
 } gc_handler;
 
 gc_handler* gc_create(pthread_t tid);
+
+
+pthread_mutex_t global_run_threads_mtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t global_run_threads_cv = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t global_run_manager_mtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t global_run_manager_cv = PTHREAD_COND_INITIALIZER;
+int global_run_finished_flag = 0;
+size_t handle_sig_cnt = 0;
+void handle_sigusr1(int sig) {
+    if (sig == SIGUSR1)
+    {   
+        printf("I am stopped\n");
+    
+        pthread_mutex_lock(&global_run_manager_mtx);
+        ++handle_sig_cnt;
+        pthread_cond_signal(&global_run_manager_cv);
+        pthread_mutex_unlock(&global_run_manager_mtx);
+
+        pthread_mutex_lock(&global_run_threads_mtx);
+        global_run_finished_flag = 0;
+
+        printf("waiting to be woken up\n");
+        while (global_run_finished_flag == 0)
+        {
+            pthread_cond_wait(&global_run_threads_cv, &global_run_threads_mtx);
+        }
+        pthread_mutex_unlock(&global_run_threads_mtx);
+
+        printf("I am woken up after collection\n");
+    }
+}
+
+void stop_world_sig_init() {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_sigusr1;
+    sa.sa_flags = SA_RESTART;
+
+    if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
+}
 
 #ifdef __cplusplus
 }

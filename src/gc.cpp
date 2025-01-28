@@ -366,6 +366,7 @@ public:
 class gc_manager
 {
 private:
+    std::atomic<bool> is_global_collecting = false;
     std::mutex reg_mtx_;
     std::unordered_map<pthread_t, gc*> reg_;
     thread_pool tpool_;
@@ -379,6 +380,78 @@ private:
         }
         
         return reg_[tid];
+    }
+
+    void global_run(pthread_t origin_tid) {
+        if (is_global_collecting.load()) { return; }
+
+        LOG_PRINTF("Doing global collection");
+        is_global_collecting.store(true);            
+        pthread_mutex_lock(&global_run_manager_mtx);
+        
+        handle_sig_cnt = 0;
+
+        std::lock_guard reg_lock(reg_mtx_);
+        for (const auto&[key, val] : reg_) {
+            if (origin_tid == key) { continue; }
+            
+            pthread_kill(key, SIGUSR1);
+        }
+
+        LOG_PRINTF("All signals sent");
+        while (handle_sig_cnt + 1 != reg_.size())
+        {
+            pthread_cond_wait(&global_run_manager_cv, &global_run_manager_mtx);
+        }
+
+        LOG_PRINTF("All threads stopped");
+
+        tpool_.wait_all();
+        for (const auto&[key, val] : reg_) {
+            do_collect(key);
+        }
+        tpool_.wait_all();
+
+        global_run_finished_flag = 1;
+        pthread_cond_broadcast(&global_run_threads_cv);
+        
+        pthread_mutex_unlock(&global_run_manager_mtx);
+        is_global_collecting.store(false);
+    }
+
+    void* nomem_handler(pthread_t origin_tid, gc* thread_gc, size_t size) {
+        if (is_global_collecting.load())
+        {
+            pthread_mutex_lock(&global_run_threads_mtx);
+            while (global_run_finished_flag == 0)
+            {
+                pthread_cond_wait(&global_run_threads_cv, &global_run_threads_mtx);
+            }
+            pthread_mutex_unlock(&global_run_threads_mtx);
+
+            
+        } else
+        {
+            global_run(origin_tid);
+        }
+        
+
+        void* res = NULL;
+        EERROR error;
+        auto task_id = tpool_.add_task([thread_gc](size_t size, void*& res, EERROR& err) -> void {
+                                            thread_gc->gc_malloc(size, res, err); 
+                                        },
+                                        size,
+                                        std::ref(res),
+                                        std::ref(error));
+        tpool_.wait(task_id);
+
+        if (error == EERROR::NOMEM)
+        {
+            std::cerr << "heap overflow";
+            std::exit(EXIT_FAILURE);
+        }
+        return res;
     }
 public:
     void add_to_reg(pthread_t tid, gc* new_gc) {
@@ -402,9 +475,7 @@ public:
         
         if (error == EERROR::NOMEM)
         {
-            // TODO: global gc run
-            std::cerr << "heap overflow\n";
-            std::exit(EXIT_FAILURE);
+            return nomem_handler(tid, thread_gc, size);
         }
         return res;
     }
@@ -425,13 +496,23 @@ public:
         tpool_.add_task([thread_gc](void* addr) { thread_gc->unmark_root(addr); }, addr);
     }
 
-    void do_collect(pthread_t tid) {
-        gc* thread_gc = get_gc(tid);
+    void do_collect(pthread_t tid, int flag = 0) {
+        if (flag == GLOBAL)
+        {   
+            LOG_PRINTF("Global collection called");
+            global_run(tid);
+            return;
+        } else if (flag == THREAD_LOCAL)
+        {
+            gc* thread_gc = get_gc(tid);
 
-        auto task_id = tpool_.add_task([thread_gc]() { thread_gc->collect(); });
-        tpool_.wait(task_id);
+            auto task_id = tpool_.add_task([thread_gc]() { thread_gc->collect(); });
+            tpool_.wait(task_id);
+        }
     }
-} manager;
+};
+
+static gc_manager manager;
 
 
 void* manager_malloc_wrapper(pthread_t tid, size_t size) {
@@ -450,8 +531,8 @@ void manager_unmark_root_wrapper(pthread_t tid, void* addr) {
     manager.do_root_unmarking(tid, addr);
 }
 
-void manager_collect_wrapper(pthread_t tid) {
-    manager.do_collect(tid);
+void manager_collect_wrapper(pthread_t tid, int flag) {
+    manager.do_collect(tid, flag);
 }
 
 gc_handler* gc_create(pthread_t tid) {
