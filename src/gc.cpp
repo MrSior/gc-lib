@@ -261,6 +261,31 @@ struct alloc_info
     ETAG tag;
 };
 
+std::atomic<bool> is_global_collecting = false;
+std::atomic<bool>            is_stoped = false;
+
+std::condition_variable gr_manager_cv; // global run manager cv
+std::mutex              gr_manager_mtx;
+
+std::condition_variable handle_cv;
+std::mutex              handle_mtx;
+
+void handle_sigusr1(int sig) {
+    if (sig == SIGUSR1)
+    {   
+        LOG_PRINTF("I am stopped");
+        is_stoped.store(true);
+        gr_manager_cv.notify_one();
+
+        std::unique_lock handle_lock(handle_mtx);
+        LOG_PRINTF("I am fall a slepp");
+        handle_cv.wait(handle_lock, []() -> bool {
+            return !is_global_collecting.load();
+        });
+        LOG_PRINTF("I am woken up");
+    }
+}
+
 class gc {
 private:
     std::unordered_set<void*> roots_;
@@ -366,7 +391,7 @@ public:
 class gc_manager
 {
 private:
-    std::atomic<bool> is_global_collecting = false;
+    std::mutex global_run_mtx;
     std::mutex reg_mtx_;
     std::unordered_map<pthread_t, gc*> reg_;
     thread_pool tpool_;
@@ -384,27 +409,23 @@ private:
 
     void global_run(pthread_t origin_tid) {
         if (is_global_collecting.load()) { return; }
-
-        LOG_PRINTF("Doing global collection");
-        is_global_collecting.store(true);            
-        pthread_mutex_lock(&global_run_manager_mtx);
+        is_global_collecting.store(true);
+        std::lock_guard run_lock(global_run_mtx);
         
-        handle_sig_cnt = 0;
+        LOG_PRINTF("Start global gc");
 
-        std::lock_guard reg_lock(reg_mtx_);
         for (const auto&[key, val] : reg_) {
-            if (origin_tid == key) { continue; }
-            
+            if (key == origin_tid) { continue; }
+            is_stoped.store(false);
             pthread_kill(key, SIGUSR1);
+
+            std::unique_lock collection_lock(gr_manager_mtx);
+            gr_manager_cv.wait(collection_lock, [](){
+                return is_stoped.load();
+            });
         }
 
-        LOG_PRINTF("All signals sent");
-        while (handle_sig_cnt + 1 != reg_.size())
-        {
-            pthread_cond_wait(&global_run_manager_cv, &global_run_manager_mtx);
-        }
-
-        LOG_PRINTF("All threads stopped");
+        LOG_PRINTF("All threads sleep");
 
         tpool_.wait_all();
         for (const auto&[key, val] : reg_) {
@@ -412,24 +433,20 @@ private:
         }
         tpool_.wait_all();
 
-        global_run_finished_flag = 1;
-        pthread_cond_broadcast(&global_run_threads_cv);
-        
-        pthread_mutex_unlock(&global_run_manager_mtx);
+        LOG_PRINTF("Done cleaning");
+
         is_global_collecting.store(false);
+        handle_cv.notify_all();
+        LOG_PRINTF("All threads are waking up");
     }
 
     void* nomem_handler(pthread_t origin_tid, gc* thread_gc, size_t size) {
         if (is_global_collecting.load())
         {
-            pthread_mutex_lock(&global_run_threads_mtx);
-            while (global_run_finished_flag == 0)
-            {
-                pthread_cond_wait(&global_run_threads_cv, &global_run_threads_mtx);
-            }
-            pthread_mutex_unlock(&global_run_threads_mtx);
-
-            
+            std::unique_lock handle_lock(handle_mtx);
+            handle_cv.wait(handle_lock, []() -> bool {
+                return !is_global_collecting.load();
+            });       
         } else
         {
             global_run(origin_tid);
@@ -535,6 +552,18 @@ void manager_collect_wrapper(pthread_t tid, int flag) {
     manager.do_collect(tid, flag);
 }
 
+void stop_world_sig_init() {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_sigusr1;
+    sa.sa_flags = SA_RESTART;
+
+    if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
+}
+
 gc_handler* gc_create(pthread_t tid) {
     manager.add_to_reg(tid, new gc);
     gc_handler* handler = new gc_handler;
@@ -544,7 +573,7 @@ gc_handler* gc_create(pthread_t tid) {
     handler->mark_root = &manager_mark_root__wrapper;
     handler->unmark_root = &manager_unmark_root_wrapper;
     handler->collect = &manager_collect_wrapper;
+    stop_world_sig_init();
 
     return handler;
 }
-
