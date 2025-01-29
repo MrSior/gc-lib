@@ -319,19 +319,6 @@ private:
     }
 
     void sweep() {
-        // for (auto itr = allocs_reg_.begin(); itr != allocs_reg_.end();)
-        // {
-        //     if (itr->second->tag == ETAG::USED)
-        //     {
-        //         ++itr;
-        //         continue;
-        //     }
-            
-        //     free(itr->first);
-        //     delete(itr->second);
-        //     itr = allocs_reg_.erase(itr);
-        // }
-        
         std::erase_if(allocs_reg_, [](const auto& item) -> bool {
             auto const& [key, value] = item;
             if (value->tag == ETAG::USED) { return false; }
@@ -339,6 +326,11 @@ private:
             free(key);
             delete value;
             return true;
+        });
+
+        std::for_each(allocs_reg_.begin(), allocs_reg_.end(), [](auto& item){
+            auto& [key, value] = item;
+            value->tag = ETAG::NONE;
         });
     }
 public:
@@ -386,6 +378,13 @@ public:
         mark();
         sweep();
     }
+
+    ~gc() {
+        for (const auto& alloc : allocs_reg_) {
+            free(alloc.first);
+            delete alloc.second;
+        }
+    }
 };
 
 class gc_manager
@@ -411,8 +410,10 @@ private:
         if (is_global_collecting.load()) { return; }
         is_global_collecting.store(true);
         std::lock_guard run_lock(global_run_mtx);
-        
         LOG_PRINTF("Start global gc");
+        tpool_.block();
+        tpool_.wait_all();
+        
 
         for (const auto&[key, val] : reg_) {
             if (key == origin_tid) { continue; }
@@ -427,9 +428,11 @@ private:
 
         LOG_PRINTF("All threads sleep");
 
-        tpool_.wait_all();
-        for (const auto&[key, val] : reg_) {
-            do_collect(key);
+        LOG_PRINTF("Tpool q_mutex = %d", (int)tpool_.check_q_mutex());
+        for (auto[key, val] : reg_) {
+            LOG_PRINTF("Done 1 collect");
+            // do_collect(key);
+            auto task_id = tpool_.add_priority_task([val]() { val->collect(); });
         }
         tpool_.wait_all();
 
@@ -437,6 +440,7 @@ private:
 
         is_global_collecting.store(false);
         handle_cv.notify_all();
+        tpool_.unblock();
         LOG_PRINTF("All threads are waking up");
     }
 
@@ -477,6 +481,14 @@ public:
         tpool_.add_thread();
     }
 
+    void erase_from_reg(pthread_t tid) {
+        std::lock_guard reg_lock(reg_mtx_);
+        auto itr = reg_.find(tid);
+        if (itr == reg_.end()) return;
+        delete itr->second;
+        reg_.erase(itr);
+    }
+
     void* do_malloc(pthread_t tid, size_t size) {
         gc* thread_gc = get_gc(tid);
         
@@ -494,6 +506,7 @@ public:
         {
             return nomem_handler(tid, thread_gc, size);
         }
+        // LOG_PRINTF("Alloc: %p", res);
         return res;
     }
 
@@ -576,4 +589,8 @@ gc_handler* gc_create(pthread_t tid) {
     stop_world_sig_init();
 
     return handler;
+}
+
+void gc_stop(pthread_t tid) {
+    manager.erase_from_reg(tid);
 }

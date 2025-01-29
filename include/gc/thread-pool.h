@@ -10,6 +10,8 @@
 #include <vector>
 #include <chrono>
 
+#include "gc/log.h"
+
 class thread_pool {
 public:
     thread_pool() = default;
@@ -24,13 +26,26 @@ public:
 
     template <typename Func, typename ...Args>
     int64_t add_task(const Func& task_func, Args&&... args) {
-        std::unique_lock add_lock(add_task_mtx_);
-        add_task_cv_.wait(add_lock, [this](){
-            return !block_tpool_.load();
-        });
+        // std::unique_lock add_lock(add_task_mtx_);
+        // add_task_cv_.wait(add_lock, [this](){
+        //     return !block_tpool_.load();
+        // });
+
+        while (block_tpool_.load()) {}
 
         int64_t task_idx = last_idx_.fetch_add(1);
         
+        std::lock_guard q_lock(q_mtx_);
+        queue_.emplace(std::async(std::launch::deferred, task_func, args...), task_idx);
+        q_cv_.notify_one();
+        return task_idx;
+    }
+
+    template <typename Func, typename ...Args>
+    int64_t add_priority_task(const Func& task_func, Args&&... args) {
+        int64_t task_idx = last_idx_.fetch_add(1);
+        
+        LOG_PRINTF("Tpool q_mutex = %d", (int)check_q_mutex());
         std::lock_guard q_lock(q_mtx_);
         queue_.emplace(std::async(std::launch::deferred, task_func, args...), task_idx);
         q_cv_.notify_one();
@@ -44,24 +59,31 @@ public:
         });
     }
 
-    void wait_all(int64_t task_id) {
+    void wait_all() {
+        LOG_PRINTF("In waiting all");
         std::unique_lock ct_lock(ct_mtx_);
-        ct_cv_.wait(ct_lock, [this, task_id]() -> bool {
-            return completed_tasks_idx_.find(task_id) != completed_tasks_idx_.end();
+        ct_cv_.wait(ct_lock, [this]() -> bool {
+            std::lock_guard q_lock(q_mtx_);
+            // LOG_PRINTF("Queue size: %lu", queue_.size());
+            // LOG_PRINTF("Comp tasks size: %lu", completed_tasks_idx_.size());
+            // LOG_PRINTF("Last idx: %ld", last_idx_.load());
+            return queue_.empty() && completed_tasks_idx_.size() == last_idx_.load();
         });
     }
 
-    void wait_all() {
+    bool check_q_mutex() {
+        auto res = q_mtx_.try_lock();
+        q_mtx_.unlock();
+        return res;
+    }
+
+    void block() {
         block_tpool_.store(true);
+    }
 
-        std::unique_lock q_lock(q_mtx_);
-        ct_cv_.wait(q_lock, [this]() -> bool {
-            std::lock_guard task_lock(ct_mtx_);
-            return queue_.empty() && completed_tasks_idx_.size() == last_idx_.load();
-        });
-
+    void unblock() {
         block_tpool_.store(false);
-        add_task_cv_.notify_all();
+        // add_task_cv_.notify_all();
     }
 
     void add_thread() {
@@ -90,6 +112,12 @@ private:
             q_cv_.wait(q_lock, [this]() -> bool {
                 return !queue_.empty() || quite_;
             });
+
+            if (block_tpool_.load())
+            {
+                LOG_PRINTF("RUN");
+            }
+            
 
             if (!queue_.empty())
             {

@@ -77,6 +77,7 @@ typedef struct gc_handler
 } gc_handler;
 
 gc_handler* gc_create(pthread_t tid);
+void gc_stop(pthread_t tid);
 
 void handle_sigusr1(int sig);
 
