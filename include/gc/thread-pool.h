@@ -26,12 +26,12 @@ public:
 
     template <typename Func, typename ...Args>
     int64_t add_task(const Func& task_func, Args&&... args) {
-        // std::unique_lock add_lock(add_task_mtx_);
-        // add_task_cv_.wait(add_lock, [this](){
-        //     return !block_tpool_.load();
-        // });
+        std::unique_lock add_lock(add_task_mtx_);
+        add_task_cv_.wait(add_lock, [this](){
+            return !block_tpool_.load();
+        });
 
-        while (block_tpool_.load()) {}
+        // while (block_tpool_.load()) {}
 
         int64_t task_idx = last_idx_.fetch_add(1);
         
@@ -59,14 +59,12 @@ public:
         });
     }
 
+    // wait when all tasks in thread pool will finish. Can be used only after blocking thread pool.
     void wait_all() {
         LOG_PRINTF("In waiting all");
         std::unique_lock ct_lock(ct_mtx_);
         ct_cv_.wait(ct_lock, [this]() -> bool {
             std::lock_guard q_lock(q_mtx_);
-            // LOG_PRINTF("Queue size: %lu", queue_.size());
-            // LOG_PRINTF("Comp tasks size: %lu", completed_tasks_idx_.size());
-            // LOG_PRINTF("Last idx: %ld", last_idx_.load());
             return queue_.empty() && completed_tasks_idx_.size() == last_idx_.load();
         });
     }
@@ -83,7 +81,7 @@ public:
 
     void unblock() {
         block_tpool_.store(false);
-        // add_task_cv_.notify_all();
+        add_task_cv_.notify_all();
     }
 
     void add_thread() {
