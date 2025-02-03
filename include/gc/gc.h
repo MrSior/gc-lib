@@ -69,7 +69,7 @@ extern "C" {
 
 typedef struct gc_handler
 {
-    void*(*gc_malloc)(pthread_t, size_t);
+    void(*gc_malloc)(pthread_t, void**, size_t);
     void(*gc_free)(pthread_t, void*);
     void(*mark_root)(pthread_t, void*);
     void(*unmark_root)(pthread_t, void*);
@@ -80,6 +80,23 @@ gc_handler* gc_create(pthread_t tid);
 void gc_stop(pthread_t tid);
 
 void handle_sigusr1(int sig);
+
+
+#define GC_CREATE()                                                 \
+    pthread_t __this_thread_id = pthread_self();                    \
+    gc_handler* __handler = gc_create(__this_thread_id);
+
+#define GC_MALLOC(val, size)                                        \
+    __handler->gc_malloc(__this_thread_id, (void**)(val), (size));
+
+#define GC_MARK_ROOT(val)                                           \
+    __handler->mark_root(__this_thread_id, (void*)(&val));
+
+#define GC_COLLECT(flag)                                            \
+    __handler->collect(__this_thread_id, (flag));
+
+#define GC_STOP()                                                   \
+    gc_stop(__this_thread_id);
 
 #ifdef __cplusplus
 }

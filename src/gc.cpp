@@ -444,7 +444,7 @@ private:
         LOG_PRINTF("All threads are waking up");
     }
 
-    void* nomem_handler(pthread_t origin_tid, gc* thread_gc, size_t size) {
+    void nomem_handler(pthread_t origin_tid, gc* thread_gc, void*& dest, size_t size) {
         if (is_global_collecting.load())
         {
             std::unique_lock handle_lock(handle_mtx);
@@ -456,14 +456,12 @@ private:
             global_run(origin_tid);
         }
         
-
-        void* res = NULL;
         EERROR error;
         auto task_id = tpool_.add_task([thread_gc](size_t size, void*& res, EERROR& err) -> void {
                                             thread_gc->gc_malloc(size, res, err); 
                                         },
                                         size,
-                                        std::ref(res),
+                                        std::ref(dest),
                                         std::ref(error));
         tpool_.wait(task_id);
 
@@ -472,7 +470,6 @@ private:
             std::cerr << "heap overflow";
             std::exit(EXIT_FAILURE);
         }
-        return res;
     }
 public:
     void add_to_reg(pthread_t tid, gc* new_gc) {
@@ -489,25 +486,23 @@ public:
         reg_.erase(itr);
     }
 
-    void* do_malloc(pthread_t tid, size_t size) {
+    void do_malloc(pthread_t tid, void*& dest, size_t size) {
         gc* thread_gc = get_gc(tid);
         
-        void* res = NULL;
         EERROR error;
         auto task_id = tpool_.add_task([thread_gc](size_t size, void*& res, EERROR& err) -> void {
                                             thread_gc->gc_malloc(size, res, err); 
                                         },
                                         size,
-                                        std::ref(res),
+                                        std::ref(dest),
                                         std::ref(error));
         tpool_.wait(task_id);
         
         if (error == EERROR::NOMEM)
         {
-            return nomem_handler(tid, thread_gc, size);
+            nomem_handler(tid, thread_gc, dest, size);
         }
         // LOG_PRINTF("Alloc: %p", res);
-        return res;
     }
 
     void do_free(pthread_t tid, void* addr) {
@@ -526,7 +521,7 @@ public:
         tpool_.add_task([thread_gc](void* addr) { thread_gc->unmark_root(addr); }, addr);
     }
 
-    void do_collect(pthread_t tid, int flag = 0) {
+    void do_collect(pthread_t tid, int flag = THREAD_LOCAL) {
         if (flag == GLOBAL)
         {   
             LOG_PRINTF("Global collection called");
@@ -545,8 +540,8 @@ public:
 static gc_manager manager;
 
 
-void* manager_malloc_wrapper(pthread_t tid, size_t size) {
-    return manager.do_malloc(tid, size);
+void manager_malloc_wrapper(pthread_t tid, void** dest, size_t size) {
+    manager.do_malloc(tid, *dest, size);
 }
 
 void manager_free_wrapper(pthread_t tid, void* addr) {
