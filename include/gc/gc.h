@@ -89,7 +89,7 @@ void handle_sigusr1(int sig);
     __handler->gc_malloc(pthread_self(), (void**)(val), (size));
 
 #define GC_MARK_ROOT(val)                                           \
-    __handler->mark_root(pthread_self(), (void*)(&val));
+    __handler->mark_root(pthread_self(), (void*)(&(val)));
 
 #define GC_COLLECT(flag)                                            \
     __handler->collect(pthread_self(), (flag));
