@@ -11,7 +11,7 @@
 #include <errno.h>
 
 #undef LOG_LVL
-#define LOG_LVL LOG_LEVEL::DEBUG
+#define LOG_LVL LOG_LEVEL::INFO
 
 enum class ETAG {
     NONE,
@@ -179,7 +179,7 @@ private:
         if (is_global_collecting.load()) { return; }
         is_global_collecting.store(true);
         std::lock_guard run_lock(global_run_mtx);
-        LOG_DEBUG("%s", "Start global gc");
+        LOG_INFO("%s", "Start global gc");
         tpool_.block();
         tpool_.wait_all();
         
@@ -294,7 +294,7 @@ public:
     void do_collect(pthread_t tid, int flag = THREAD_LOCAL) {
         if (flag == GLOBAL)
         {   
-            LOG_DEBUG("%s", "Global collection called");
+            LOG_INFO("%s", "Global collection called");
             global_run(tid);
             return;
         } else if (flag == THREAD_LOCAL)

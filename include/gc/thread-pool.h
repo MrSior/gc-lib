@@ -45,7 +45,7 @@ public:
     int64_t add_priority_task(const Func& task_func, Args&&... args) {
         int64_t task_idx = last_idx_.fetch_add(1);
         
-        LOG_PRINTF("Tpool q_mutex = %d", (int)check_q_mutex());
+        LOG_DEBUG("Tpool q_mutex = %d", (int)check_q_mutex());
         std::lock_guard q_lock(q_mtx_);
         queue_.emplace(std::async(std::launch::deferred, task_func, args...), task_idx);
         q_cv_.notify_one();
@@ -61,7 +61,7 @@ public:
 
     // wait when all tasks in thread pool will finish. Can be used only after blocking thread pool.
     void wait_all() {
-        LOG_PRINTF("In waiting all");
+        LOG_DEBUG("%s", "In waiting all");
         std::unique_lock ct_lock(ct_mtx_);
         ct_cv_.wait(ct_lock, [this]() -> bool {
             std::lock_guard q_lock(q_mtx_);
@@ -113,7 +113,7 @@ private:
 
             if (block_tpool_.load())
             {
-                LOG_PRINTF("RUN");
+                LOG_DEBUG("%s", "RUN");
             }
             
 
