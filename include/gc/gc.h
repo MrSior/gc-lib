@@ -83,20 +83,19 @@ void handle_sigusr1(int sig);
 
 
 #define GC_CREATE()                                                 \
-    pthread_t __this_thread_id = pthread_self();                    \
-    gc_handler* __handler = gc_create(__this_thread_id);
+    gc_handler* __handler = gc_create(pthread_self());
 
 #define GC_MALLOC(val, size)                                        \
-    __handler->gc_malloc(__this_thread_id, (void**)(val), (size));
+    __handler->gc_malloc(pthread_self(), (void**)(val), (size));
 
 #define GC_MARK_ROOT(val)                                           \
-    __handler->mark_root(__this_thread_id, (void*)(&val));
+    __handler->mark_root(pthread_self(), (void*)(&val));
 
 #define GC_COLLECT(flag)                                            \
-    __handler->collect(__this_thread_id, (flag));
+    __handler->collect(pthread_self(), (flag));
 
 #define GC_STOP()                                                   \
-    gc_stop(__this_thread_id);
+    gc_stop(pthread_self());
 
 #ifdef __cplusplus
 }

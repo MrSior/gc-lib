@@ -1,237 +1,3 @@
-// #include "gc/gc.h"
-// #include "gc/log.h"
-
-// #include <iostream>
-// #include <unordered_map>
-// #include <unordered_set>
-// #include <thread>
-// #include <csetjmp>
-// #include <unistd.h>
-// #include <errno.h>
-
-// enum class ETAG {
-//     NONE,
-//     USED,
-// };
-
-// struct Allco_info {
-//     void* ptr;
-//     size_t size;
-//     ETAG tag;
-// };
-
-// struct Gc
-// {
-//     std::unordered_map<void*, Allco_info*> alloc_reg;
-//     std::unordered_set<void*> roots;
-
-
-//     std::mutex mtx;
-//     std::atomic<bool> is_terminate = false;
-//     std::condition_variable run_cv;
-// };
-
-// void* gc_schedual_run(void* arg);
-
-// class Gc_registry {
-//     std::unordered_map<pthread_t, Gc*> reg_;
-//     std::mutex reg_mtx_;
-// public:
-//     void add(pthread_t tid) {
-//         std::lock_guard lock(reg_mtx_);
-//         reg_.insert({tid, new Gc});
-
-//         pthread_t gc_thread;
-//         pthread_t* arg = new pthread_t(tid);
-//         if (pthread_create(&gc_thread, NULL, gc_schedual_run, arg))
-//         {
-//             perror("pthread_create failed");
-//             return;
-//         }
-//         pthread_detach(gc_thread);
-//     }
-
-//     Gc* get(pthread_t tid) {
-//         std::lock_guard lock(reg_mtx_);
-//         if (reg_.contains(tid))
-//         {
-//             return reg_[tid];
-//         }
-//         throw std::invalid_argument("Try to get gc that doesn't exist");
-//     }
-
-//     void erase(pthread_t tid) {
-//         std::lock_guard lock(reg_mtx_);
-//         if (reg_.contains(tid))
-//         {
-//             reg_.erase(tid);
-//         }
-//         throw std::invalid_argument("Try to erase gc that doesn't exist");
-//     }
-
-//     void global_gc_run() {
-//         for (const auto&[tid, gc_ptr] : reg_) {
-//             gc_ptr->run_cv.notify_one();
-//         }
-//     }
-// };
-
-// static Gc_registry gc_reg;
-
-// void* gc_schedual_run(void* arg) {
-//     if (arg == NULL)
-//     {
-//         throw std::invalid_argument("Tid_ptr is NULL");
-//     }
-    
-//     pthread_t observed_tid = *(pthread_t*)(arg);
-//     delete (pthread_t*)arg;
-//     Gc* gc_ptr = gc_reg.get(observed_tid);
-    
-//     while (!gc_ptr->is_terminate.load())
-//     {
-//         std::unique_lock lock(gc_ptr->mtx);
-//         gc_ptr->run_cv.wait(lock, [&gc_ptr](){
-//             return false;
-//         });
-//         gc_run(observed_tid);
-//     }
-//     LOG_PRINTF("GC KILLED");
-//     return NULL;
-// }
-
-// void gc_create(pthread_t tid) {
-//     gc_reg.add(tid);
-// }
-
-// void* gc_malloc(pthread_t tid, size_t size) {
-//     Gc* gc_ptr = gc_reg.get(tid);
-
-//     std::lock_guard gc_lock(gc_ptr->mtx);
-
-//     void* new_mem = malloc(size);
-//     if (errno == ENOMEM || errno == EAGAIN)
-//     {
-//         gc_reg.global_gc_run();
-//         new_mem = malloc(size);
-//         if (errno == ENOMEM || errno == EAGAIN) {
-//             std::cerr << "heap overflow" << '\n';
-//             return NULL;
-//         }
-//     }
-    
-//     try
-//     {
-//         Allco_info* new_alloc = new Allco_info;
-//         new_alloc->size = size;
-//         new_alloc->tag = ETAG::NONE;
-//         new_alloc->ptr = new_mem;
-
-//         gc_ptr->alloc_reg.insert({new_alloc->ptr, new_alloc});
-//         // LOG_PRINTF("MALLOC %p", new_alloc->ptr);
-//         return new_alloc->ptr;
-//     }
-//     catch(const std::bad_alloc& e)
-//     {
-//         std::cerr << e.what() << '\n';
-//         return NULL;
-//     }
-// }
-
-// void gc_free(pthread_t tid, void* ptr) {
-//     Gc* gc_ptr = gc_reg.get(tid);
-
-//     std::lock_guard gc_lock(gc_ptr->mtx);
-//     if (gc_ptr->alloc_reg.contains(ptr)) {
-//         Allco_info* alloc_info = gc_ptr->alloc_reg[ptr];
-//         gc_ptr->alloc_reg.erase(ptr);
-
-//         free(alloc_info->ptr);
-//         delete alloc_info;
-//     }
-// }
-
-// void gc_sweep(Gc* gc) {
-//     LOG_PRINTF("======== SWEEP PHASE ========");
-
-//     for (auto itr = gc->alloc_reg.begin(); itr != gc->alloc_reg.end();)
-//     {
-//         // Allco_info* info = itr->second;
-//         if (itr->second->tag == ETAG::NONE)
-//        {
-//             LOG_PRINTF("Sweep %p", itr->first);
-//             free(itr->first);
-//             delete itr->second;
-
-//             itr = gc->alloc_reg.erase(itr);
-//         } else {
-//             ++itr;
-//         }
-//     }
-    
-//     for (const auto& alloc : gc->alloc_reg)
-//     {
-//         alloc.second->tag = ETAG::NONE;
-//     }
-//     LOG_PRINTF("=============================");
-// }
-
-// void gc_mark_alloc(Gc* gc, Allco_info* alloc) {
-//     if (alloc->tag == ETAG::USED)
-//     {
-//         return;
-//     }
-//     alloc->tag = ETAG::USED;
-    
-//     char* alloc_end = (char*)alloc->ptr + alloc->size;
-//     for (char* ptr = (char*)alloc->ptr; ptr < alloc_end; ++ptr)
-//     {
-//         if (gc->alloc_reg.contains(*(void**)ptr))
-//         {
-//             LOG_PRINTF("Found %p on HEAP at %p", *(void**)ptr, ptr);
-//             gc_mark_alloc(gc, gc->alloc_reg[*(void**)ptr]);
-//         }
-//     }
-// }
-
-// void gc_mark_root(pthread_t tid, void* addr) {
-//     Gc* gc_ptr = gc_reg.get(tid);
-//     std::lock_guard gc_lock(gc_ptr->mtx);
-//     gc_ptr->roots.insert(addr);
-// }
-
-// void gc_unmark_root(pthread_t tid, void* addr) {
-//     Gc* gc_ptr = gc_reg.get(tid);
-//     std::lock_guard gc_lock(gc_ptr->mtx);
-//     gc_ptr->roots.erase(addr);
-// }
-
-
-
-// void gc_run(pthread_t tid) {
-//     Gc* gc_ptr = gc_reg.get(tid);
-//     std::lock_guard gc_lock(gc_ptr->mtx);
-//     for (const auto& ptr: gc_ptr->roots)
-//     {
-//         if (gc_ptr->alloc_reg.contains(*(void**)ptr))
-//         {
-//             LOG_PRINTF("Found %p on STACK at %p", *(void**)ptr, ptr);
-//             gc_mark_alloc(gc_ptr, gc_ptr->alloc_reg[*(void**)ptr]);   
-//         } else {
-//             LOG_PRINTF("ROOT %p lost address", ptr);
-//         }
-//     }
-    
-//     gc_sweep(gc_ptr);
-// }
-
-// void gc_stop(pthread_t tid) {
-//     Gc* gc_ptr = gc_reg.get(tid);
-//     gc_ptr->is_terminate.store(true);
-//     gc_sweep(gc_ptr);
-// }
-
-
 #include "gc/gc.h"
 #include "gc/log.h"
 #include "gc/thread-pool.h"
@@ -243,6 +9,9 @@
 #include <csetjmp>
 #include <unistd.h>
 #include <errno.h>
+
+#undef LOG_LVL
+#define LOG_LVL LOG_LEVEL::DEBUG
 
 enum class ETAG {
     NONE,
@@ -273,16 +42,16 @@ std::mutex              handle_mtx;
 void handle_sigusr1(int sig) {
     if (sig == SIGUSR1)
     {   
-        LOG_PRINTF("I am stopped");
+        LOG_DEBUG("%s", "I am stopped");
         is_stoped.store(true);
         gr_manager_cv.notify_one();
 
         std::unique_lock handle_lock(handle_mtx);
-        LOG_PRINTF("I am fall a slepp");
+        LOG_DEBUG("%s", "I am fall a sleep");
         handle_cv.wait(handle_lock, []() -> bool {
             return !is_global_collecting.load();
         });
-        LOG_PRINTF("I am woken up");
+        LOG_DEBUG("%s", "I am woken up");
     }
 }
 
@@ -295,7 +64,7 @@ private:
         if (alloc->tag == ETAG::USED) { return; }
         
         alloc->tag = ETAG::USED;
-        LOG_PRINTF("Mark %p", alloc->addr);
+        LOG_DEBUG("Mark %p", alloc->addr);
 
         for (char* mem_block = reinterpret_cast<char*>(alloc->addr);
              mem_block < reinterpret_cast<char*>(alloc->addr) + alloc->size;
@@ -322,7 +91,7 @@ private:
         std::erase_if(allocs_reg_, [](const auto& item) -> bool {
             auto const& [key, value] = item;
             if (value->tag == ETAG::USED) { return false; }
-            LOG_PRINTF("Sweep %p", key);
+            LOG_INFO("Sweep %p", key)
             free(key);
             delete value;
             return true;
@@ -399,7 +168,7 @@ private:
         std::lock_guard reg_lock(reg_mtx_);
         if (!reg_.contains(tid))
         {
-            std::cerr << "Try to get gc by wrong tid\n";
+            LOG_CRITICAL("%s", "Try to get gc by wrong tid");
             std::exit(EXIT_FAILURE);
         }
         
@@ -410,7 +179,7 @@ private:
         if (is_global_collecting.load()) { return; }
         is_global_collecting.store(true);
         std::lock_guard run_lock(global_run_mtx);
-        LOG_PRINTF("Start global gc");
+        LOG_DEBUG("%s", "Start global gc");
         tpool_.block();
         tpool_.wait_all();
         
@@ -426,22 +195,23 @@ private:
             });
         }
 
-        LOG_PRINTF("All threads sleep");
+        LOG_DEBUG("%s", "All threads sleep");
 
-        LOG_PRINTF("Tpool q_mutex = %d", (int)tpool_.check_q_mutex());
+        LOG_DEBUG("Tpool q_mutex = %d", (int)tpool_.check_q_mutex());
+        
         for (auto[key, val] : reg_) {
-            LOG_PRINTF("Done 1 collect");
+            LOG_DEBUG("%s", "Done 1 collect");
             // do_collect(key);
-            auto task_id = tpool_.add_priority_task([val]() { val->collect(); });
+            tpool_.add_priority_task([val]() { val->collect(); });
         }
         tpool_.wait_all();
 
-        LOG_PRINTF("Done cleaning");
+        LOG_DEBUG("%s", "Done cleaning")
 
         is_global_collecting.store(false);
         handle_cv.notify_all();
         tpool_.unblock();
-        LOG_PRINTF("All threads are waking up");
+        LOG_DEBUG("%s", "All threads are waking up")
     }
 
     void nomem_handler(pthread_t origin_tid, gc* thread_gc, void*& dest, size_t size) {
@@ -467,7 +237,7 @@ private:
 
         if (error == EERROR::NOMEM)
         {
-            std::cerr << "heap overflow";
+            LOG_CRITICAL("%s", "heap overflow");
             std::exit(EXIT_FAILURE);
         }
     }
@@ -502,7 +272,7 @@ public:
         {
             nomem_handler(tid, thread_gc, dest, size);
         }
-        // LOG_PRINTF("Alloc: %p", res);
+        
     }
 
     void do_free(pthread_t tid, void* addr) {
@@ -524,7 +294,7 @@ public:
     void do_collect(pthread_t tid, int flag = THREAD_LOCAL) {
         if (flag == GLOBAL)
         {   
-            LOG_PRINTF("Global collection called");
+            LOG_DEBUG("%s", "Global collection called");
             global_run(tid);
             return;
         } else if (flag == THREAD_LOCAL)
@@ -567,7 +337,7 @@ void stop_world_sig_init() {
     sa.sa_flags = SA_RESTART;
 
     if (sigaction(SIGUSR1, &sa, NULL) == -1) {
-        perror("sigaction");
+        LOG_CRITICAL("%s", "Sigaction: Failed to bind SIGUSR1");
         exit(EXIT_FAILURE);
     }
 }

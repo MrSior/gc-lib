@@ -28,3 +28,5 @@ void LOG_PRINTF(const char *format, ...) {
     va_end(args);
     printf("\n");
 }
+
+const char * log_level_string [] = { "CRIT", "WARN", "INFO", "DEBG" };
