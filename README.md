@@ -10,7 +10,8 @@
   - [Выделение памяти](#выделение-памяти)  
   - [Освобождение памяти](#освобождение-памяти)  
   - [Помечание корней](#помечание-корней)  
-  - [Запуск сборки мусора](#запуск-сборки-мусора)  
+  - [Запуск сборки мусора](#запуск-сборки-мусора)
+    - [Пример с многопоточностью](#пример-с-многопоточностью)  
   - [Фоновая работа](#фоновая-работа)  
   - [Завершение работы](#завершение-работы)  
   - [Полезные макросы](#полезные-макросы)  
@@ -87,6 +88,75 @@ int main(int argc, char* argv[]) {
     Отчистка мусора среди аллокаций, сделанных только данным потоком.
 - ```1 = GLOBAL```
     Отчитска мусора происходит среди аллокаций, сделанных всеми потоками. При вызове происходит "stop the world", когда все потока остонавливаются и только после завершения сборки возобновляют работу.
+
+#### Пример с многопоточностью
+```c
+
+// Поток, который "создаёт мусор". Каждые 2 сек. выделяет память и теряет указаетль.
+void* first_thread_func(void* arg) {
+    gc_handler* handler = gc_create(pthread_self());
+    int* val;
+    handler->mark_root(pthread_self(), &val);
+    
+    for (size_t i = 0; i < 3; i++)
+    {
+        handler->gc_malloc(pthread_self(), (void**)&val, 4);
+        *val = 123;
+        sleep(2);
+    }
+    
+    printf("Thread with ID: %lu (WORKER) end\n", (unsigned long)pthread_self());
+    gc_stop(pthread_self());
+    return NULL;
+}
+
+// Поток, который вызовет глобальную сборку мусора.
+void* second_thread_func(void* arg) {
+    gc_handler* handler = gc_create(pthread_self());
+    sleep(5);
+
+    handler->collect(pthread_self(), GLOBAL);
+    gc_stop(pthread_self());
+
+    printf("Thread with ID: %lu (CALLER CLEANING) end\n", (unsigned long)pthread_self());
+    return NULL;
+}
+
+int main(int argc, char* argv[]) {
+    const int num_thread = 10;
+    pthread_t threads[num_thread];
+
+    for (size_t i = 0; i < num_thread - 1; i++)
+    {
+        if (pthread_create(&threads[i], NULL, first_thread_func, NULL) != 0)
+        {
+            perror("pthread_create failed");
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (pthread_create(&threads[9], NULL, second_thread_func, NULL) != 0)
+        {
+            perror("pthread_create failed");
+            return EXIT_FAILURE;
+        }
+
+
+    for (size_t i = 0; i < num_thread; i++)
+    {
+        if (pthread_join(threads[i], NULL) != 0)
+        {
+            perror("pthread_join failed");
+            return EXIT_FAILURE;
+        }   
+    }
+    
+    printf("All threads have finished.\n");
+    return 0;
+}
+```
+
+За 5 секунд, которые ждёт Caller Cleaning Thread, каждый из 9 потоков успевает выделить 3 раза по 4 байта, при этом утеряв 2 раза указетль на выделенную пямать. Если выставть ```LOG_LVL = LOG_LEVEL::INFO```, то в логах мы увидем 18 найденых мусорных блоков памяти, которые были освобождены.
 
 ### Фоновая работа
 **TBA**
