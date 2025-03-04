@@ -24,15 +24,18 @@
 git clone https://github.com/MrSior/gc-lib
 ```
 
-В CMakeLists.txt проекта добвьте путь до директории ```/include``` библиотеки
+В CMakeLists.txt проекта добвьте директорию библиотеки в какчестве поддиректории. И добавьте в пути дирректорию ```/include```.
 
 ```cmake
+add_subdirectory(<"путь до библиотеки">/gc-lib)
 include_directories(<"путь до библиотеки">/gc-lib/include)
 ```
 
 ```cmake
-# Пример
+# Пример, если gc-lib находится рядом с CMakeLists.txt
+
 include_directories(${CMAKE_SOURCE_DIR}/gc-lib/include)
+add_subdirectory(${CMAKE_SOURCE_DIR}/gc-lib)
 ```
 
 ### Основное использование
