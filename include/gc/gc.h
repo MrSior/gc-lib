@@ -76,14 +76,14 @@ typedef struct gc_handler
     void(*collect)(pthread_t, int);
 } gc_handler;
 
-gc_handler* gc_create(pthread_t tid);
+gc_handler gc_create(pthread_t tid);
 void gc_stop(pthread_t tid);
 
 void handle_sigusr1(int sig);
 
 
 #define GC_CREATE()                                                 \
-    gc_handler* __handler = gc_create(pthread_self());
+    gc_handler __handler = gc_create(pthread_self());
 
 #define GC_MALLOC(val, size)                                        \
     __handler->gc_malloc(pthread_self(), (void**)(&(val)), (size));
