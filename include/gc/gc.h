@@ -86,7 +86,7 @@ void handle_sigusr1(int sig);
     gc_handler* __handler = gc_create(pthread_self());
 
 #define GC_MALLOC(val, size)                                        \
-    __handler->gc_malloc(pthread_self(), (void**)(val), (size));
+    __handler->gc_malloc(pthread_self(), (void**)(&(val)), (size));
 
 #define GC_MARK_ROOT(val)                                           \
     __handler->mark_root(pthread_self(), (void*)(&(val)));
@@ -96,6 +96,9 @@ void handle_sigusr1(int sig);
 
 #define GC_STOP()                                                   \
     gc_stop(pthread_self());
+
+#define GC_FREE(ptr)                                                   \
+    __handler->gc_free(pthread_self(), (void*)(ptr))
 
 #ifdef __cplusplus
 }

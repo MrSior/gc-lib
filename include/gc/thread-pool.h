@@ -16,7 +16,7 @@ class thread_pool {
 public:
     thread_pool() = default;
 
-    explicit thread_pool(int16_t n_threads) {
+    explicit thread_pool(uint16_t n_threads) {
         threads_.reserve(n_threads);
         for (size_t i = 0; i < n_threads; i++)
         {
@@ -91,6 +91,11 @@ public:
 
     void remove_thread() {
         // TODO: write sth
+    }
+
+    uint16_t get_threads_n() {
+        std::lock_guard thread_lock(threads_mtx_);
+        return static_cast<uint16_t>(threads_.size());
     }
 
     ~thread_pool() {

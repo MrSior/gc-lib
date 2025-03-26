@@ -9,9 +9,13 @@
 #include <csetjmp>
 #include <unistd.h>
 #include <errno.h>
+#include <limits.h>
 
 #undef LOG_LVL
 #define LOG_LVL LOG_LEVEL::INFO
+
+#define MAX_MEM_CAPACITY UINT64_MAX
+#define INITIAL_SWEEP_FACTOR 1024
 
 enum class ETAG {
     NONE,
@@ -57,6 +61,9 @@ void handle_sigusr1(int sig) {
 
 class gc {
 private:
+    uint64_t sweep_factor;
+    uint64_t cur_mem_capacity;
+
     std::unordered_set<void*> roots_;
     std::unordered_map<void*, alloc_info*> allocs_reg_;
 
@@ -77,7 +84,7 @@ private:
     }
 
     void mark() {
-        for (auto &&root : roots_)
+        for (const auto &root : roots_)
         {
             auto itr = allocs_reg_.find(*static_cast<void**>(root));
             if (itr != allocs_reg_.end())
@@ -104,6 +111,16 @@ private:
     }
 public:
     void gc_malloc(size_t size, void*& res, EERROR& error) {
+        if (cur_mem_capacity == sweep_factor)
+        {
+            LOG_INFO("%s", "GC backgroung collection");
+            collect();
+            if (MAX_MEM_CAPACITY / 2 > sweep_factor)
+            {
+                sweep_factor *= 2;
+            }
+        }
+        
         res = malloc(size);
 
         if (errno == ENOMEM || errno == EAGAIN)
@@ -119,6 +136,8 @@ public:
         allocation->tag = ETAG::NONE;
 
         allocs_reg_.insert({res, allocation});
+        cur_mem_capacity += size;
+        LOG_INFO("Malloc at %p size of %lu", res, size);
     }
 
     void gc_free(void* addr) {
@@ -128,6 +147,9 @@ public:
             return;
         }
         
+        LOG_INFO("Free %p", addr);
+        cur_mem_capacity -= itr->second->size;
+
         free(addr);
         delete itr->second;
         allocs_reg_.erase(itr);
@@ -148,6 +170,11 @@ public:
         sweep();
     }
 
+    gc() {
+        cur_mem_capacity = 0;
+        sweep_factor = INITIAL_SWEEP_FACTOR;
+    }
+
     ~gc() {
         for (const auto& alloc : allocs_reg_) {
             free(alloc.first);
@@ -163,6 +190,7 @@ private:
     std::mutex reg_mtx_;
     std::unordered_map<pthread_t, gc*> reg_;
     thread_pool tpool_;
+    size_t gc_cnt;
 
     gc* get_gc(pthread_t tid) {
         std::lock_guard reg_lock(reg_mtx_);
@@ -242,10 +270,25 @@ private:
         }
     }
 public:
+    gc_manager() {
+        gc_cnt = 0;
+    }
+
     void add_to_reg(pthread_t tid, gc* new_gc) {
         std::lock_guard reg_lock(reg_mtx_);
         reg_.insert({tid, new_gc});
-        tpool_.add_thread();
+        ++gc_cnt;
+        
+        if (tpool_.get_threads_n() < gc_cnt)
+        {
+            tpool_.add_thread();
+            LOG_DEBUG("%s", "Added 1 thread to thread pool");
+        }
+    }
+
+    bool contains(pthread_t tid) {
+        std::lock_guard reg_lock(reg_mtx_);
+        return reg_.contains(tid);
     }
 
     void erase_from_reg(pthread_t tid) {
@@ -276,7 +319,9 @@ public:
     }
 
     void do_free(pthread_t tid, void* addr) {
-        
+        gc* thread_gc = get_gc(tid);
+
+        tpool_.add_task([thread_gc](void* addr) { thread_gc->gc_free(addr); }, addr);
     }
 
     void do_root_marking(pthread_t tid, void* addr) {
@@ -311,6 +356,7 @@ static gc_manager manager;
 
 
 void manager_malloc_wrapper(pthread_t tid, void** dest, size_t size) {
+    LOG_DEBUG("Malloc destination: %p", dest);
     manager.do_malloc(tid, *dest, size);
 }
 
@@ -343,6 +389,12 @@ void stop_world_sig_init() {
 }
 
 gc_handler* gc_create(pthread_t tid) {
+    if (manager.contains(tid))
+    {
+        LOG_CRITICAL("gc_create: Thread with id: %lld already has GC", (long long int)tid);
+        exit(EXIT_FAILURE);
+    }
+
     manager.add_to_reg(tid, new gc);
     gc_handler* handler = new gc_handler;
 
