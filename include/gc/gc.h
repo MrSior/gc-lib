@@ -77,28 +77,29 @@ typedef struct gc_handler
 } gc_handler;
 
 gc_handler gc_create(pthread_t tid);
+gc_handler gc_get_handler();
 void gc_stop(pthread_t tid);
 
 void handle_sigusr1(int sig);
 
 
-#define GC_CREATE()                                                 \
-    gc_handler __handler = gc_create(pthread_self());
+#define GC_CREATE()                                                         \
+    gc_create(pthread_self());
 
-#define GC_MALLOC(val, size)                                        \
-    __handler->gc_malloc(pthread_self(), (void**)(&(val)), (size));
+#define GC_MALLOC(val, size)                                                \
+    gc_get_handler().gc_malloc(pthread_self(), (void**)(&(val)), (size));
 
-#define GC_MARK_ROOT(val)                                           \
-    __handler->mark_root(pthread_self(), (void*)(&(val)));
+#define GC_MARK_ROOT(val)                                                   \
+    gc_get_handler().mark_root(pthread_self(), (void*)(&(val)));
 
-#define GC_COLLECT(flag)                                            \
-    __handler->collect(pthread_self(), (flag));
+#define GC_COLLECT(flag)                                                    \
+    gc_get_handler().collect(pthread_self(), (flag));
 
-#define GC_STOP()                                                   \
+#define GC_STOP()                                                           \
     gc_stop(pthread_self());
 
-#define GC_FREE(ptr)                                                   \
-    __handler->gc_free(pthread_self(), (void*)(ptr))
+#define GC_FREE(ptr)                                                        \
+    gc_get_handler().gc_free(pthread_self(), (void*)(ptr))
 
 #ifdef __cplusplus
 }

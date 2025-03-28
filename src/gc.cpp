@@ -391,7 +391,7 @@ void stop_world_sig_init() {
 gc_handler gc_create(pthread_t tid) {
     if (manager.contains(tid))
     {
-        LOG_CRITICAL("gc_create: Thread with id: %lld already has GC", (long long int)tid);
+        LOG_CRITICAL("Thread with id: %lld already has GC", (long long int)tid);
         exit(EXIT_FAILURE);
     }
 
@@ -404,6 +404,18 @@ gc_handler gc_create(pthread_t tid) {
     handler.unmark_root = &manager_unmark_root_wrapper;
     handler.collect = &manager_collect_wrapper;
     stop_world_sig_init();
+
+    return handler;
+}
+
+gc_handler gc_get_handler() {
+    gc_handler handler;
+
+    handler.gc_malloc = &manager_malloc_wrapper;
+    handler.gc_free = &manager_free_wrapper;
+    handler.mark_root = &manager_mark_root__wrapper;
+    handler.unmark_root = &manager_unmark_root_wrapper;
+    handler.collect = &manager_collect_wrapper;
 
     return handler;
 }
