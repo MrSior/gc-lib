@@ -14,8 +14,6 @@ target_compile_options(gc-lib PRIVATE -Wall)
 
 target_include_directories(gc-lib PUBLIC include)
 
-#list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/gc-lib/cmake/gc-lib/cmake/FindCatch2.cmake")
-
 include(${CMAKE_SOURCE_DIR}/gc-lib/cmake/FindCatch2.cmake)
 # enable_testing()
 
@@ -24,3 +22,6 @@ set_target_properties(lib-tests-main PROPERTIES LINKER_LANGUAGE CXX)
 target_link_libraries(lib-tests-main PRIVATE Catch2::Catch2WithMain)
 
 # add_test(NAME my-test COMMAND lib-tests-main)
+
+add_executable(test_gc tests/test_gc.c)
+set_target_properties(lib-tests-main PROPERTIES LINKER_LANGUAGE C)
