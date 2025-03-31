@@ -25,3 +25,4 @@ target_link_libraries(lib-tests-main PRIVATE Catch2::Catch2WithMain)
 
 add_executable(test_gc tests/test_gc.c)
 set_target_properties(lib-tests-main PROPERTIES LINKER_LANGUAGE C)
+target_link_libraries(test_gc PRIVATE gc-lib)

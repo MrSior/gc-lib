@@ -12,7 +12,7 @@
 #include <limits.h>
 
 #undef LOG_LVL
-#define LOG_LVL LOG_LEVEL::INFO
+#define LOG_LVL LOG_LEVEL::CRITICAL
 
 #define MAX_MEM_CAPACITY UINT64_MAX
 #define INITIAL_SWEEP_FACTOR 1024
@@ -78,7 +78,7 @@ private:
              ++mem_block)
         {
             auto itr = allocs_reg_.find(*reinterpret_cast<void**>(mem_block));
-            if (itr == allocs_reg_.end()) { return; }
+            if (itr == allocs_reg_.end()) { continue; }
             scan_allocation(itr->second);
         }   
     }
@@ -110,6 +110,14 @@ private:
         });
     }
 public:
+    unsigned long long int get_allocs_cnt() {
+        return allocs_reg_.size();
+    }
+
+    unsigned long long int get_roots_cnt() {
+        return roots_.size();
+    }
+
     void gc_malloc(size_t size, void*& res, EERROR& error) {
         if (cur_mem_capacity == sweep_factor)
         {
@@ -299,6 +307,28 @@ public:
         reg_.erase(itr);
     }
 
+    unsigned long long int get_gc_allocs_cnt(pthread_t tid) {
+        std::lock_guard reg_lock(reg_mtx_);
+        auto itr = reg_.find(tid);
+        return itr->second->get_allocs_cnt();
+    }
+
+    unsigned long long int gel_all_threads_allocs_cnt() {
+        std::lock_guard reg_lock(reg_mtx_);
+        unsigned long long int sum = 0;
+        for (const auto& [key, gc] : reg_)
+        {
+            sum += gc->get_allocs_cnt();
+        }
+        return sum;
+    }
+
+    unsigned long long int get_gc_roots_cnt(pthread_t tid) {
+        std::lock_guard reg_lock(reg_mtx_);
+        auto itr = reg_.find(tid);
+        return itr->second->get_roots_cnt();
+    }
+
     void do_malloc(pthread_t tid, void*& dest, size_t size) {
         gc* thread_gc = get_gc(tid);
         
@@ -321,19 +351,22 @@ public:
     void do_free(pthread_t tid, void* addr) {
         gc* thread_gc = get_gc(tid);
 
-        tpool_.add_task([thread_gc](void* addr) { thread_gc->gc_free(addr); }, addr);
+        auto task_id = tpool_.add_task([thread_gc](void* addr) { thread_gc->gc_free(addr); }, addr);
+        tpool_.wait(task_id);
     }
 
     void do_root_marking(pthread_t tid, void* addr) {
         gc* thread_gc = get_gc(tid);
 
-        tpool_.add_task([thread_gc](void* addr) { thread_gc->mark_root(addr); }, addr);
+        auto task_id = tpool_.add_task([thread_gc](void* addr) { thread_gc->mark_root(addr); }, addr);
+        tpool_.wait(task_id);
     }
 
     void do_root_unmarking(pthread_t tid, void* addr) {
         gc* thread_gc = get_gc(tid);
 
-        tpool_.add_task([thread_gc](void* addr) { thread_gc->unmark_root(addr); }, addr);
+        auto task_id = tpool_.add_task([thread_gc](void* addr) { thread_gc->unmark_root(addr); }, addr);
+        tpool_.wait(task_id);
     }
 
     void do_collect(pthread_t tid, int flag = THREAD_LOCAL) {
@@ -422,4 +455,26 @@ gc_handler gc_get_handler() {
 
 void gc_stop(pthread_t tid) {
     manager.erase_from_reg(tid);
+}
+
+unsigned long long int gc_get_allocs_cnt(pthread_t tid) {
+    if (!manager.contains(tid))
+    {
+        LOG_CRITICAL("Thread with id: %lld does not have GC", (long long int)tid);
+        exit(EXIT_FAILURE);
+    }
+    return manager.get_gc_allocs_cnt(tid);
+}
+
+unsigned long long int gc_gel_all_threads_allocs_cnt() {
+    return manager.gel_all_threads_allocs_cnt();
+}
+
+unsigned long long int gc_get_roots_cnt(pthread_t tid) {
+    if (!manager.contains(tid))
+    {
+        LOG_CRITICAL("Thread with id: %lld does not have GC", (long long int)tid);
+        exit(EXIT_FAILURE);
+    }
+    return manager.get_gc_roots_cnt(tid);
 }
