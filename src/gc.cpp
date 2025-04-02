@@ -145,7 +145,7 @@ public:
 
         allocs_reg_.insert({res, allocation});
         cur_mem_capacity += size;
-        LOG_INFO("Malloc at %p size of %lu", res, size);
+        LOG_DEBUG("Malloc at %p size of %lu", res, size);
     }
 
     void gc_free(void* addr) {
@@ -155,7 +155,7 @@ public:
             return;
         }
         
-        LOG_INFO("Free %p", addr);
+        LOG_DEBUG("Free %p", addr);
         cur_mem_capacity -= itr->second->size;
 
         free(addr);
@@ -204,7 +204,7 @@ private:
         std::lock_guard reg_lock(reg_mtx_);
         if (!reg_.contains(tid))
         {
-            LOG_CRITICAL("%s", "Try to get gc by wrong tid");
+            LOG_CRITICAL("Thread with id: %lld does not have GC", (long long int)tid);
             std::exit(EXIT_FAILURE);
         }
         
@@ -273,7 +273,7 @@ private:
 
         if (error == EERROR::NOMEM)
         {
-            LOG_CRITICAL("%s", "heap overflow");
+            LOG_CRITICAL("%s", "Heap overflow");
             std::exit(EXIT_FAILURE);
         }
     }
@@ -372,7 +372,6 @@ public:
     void do_collect(pthread_t tid, int flag = THREAD_LOCAL) {
         if (flag == GLOBAL)
         {   
-            LOG_INFO("%s", "Global collection called");
             global_run(tid);
             return;
         } else if (flag == THREAD_LOCAL)
@@ -424,8 +423,9 @@ void stop_world_sig_init() {
 gc_handler gc_create(pthread_t tid) {
     if (manager.contains(tid))
     {
-        LOG_CRITICAL("Thread with id: %lld already has GC", (long long int)tid);
-        exit(EXIT_FAILURE);
+        LOG_WARNING("Thread with id: %lld already has GC", (long long int)tid);
+        gc_handler handler;
+        return handler;
     }
 
     manager.add_to_reg(tid, new gc);

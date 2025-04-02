@@ -13,7 +13,7 @@ enum class LOG_LEVEL {
     DEBUG,
 };
 
-#define LOG_LVL LOG_LEVEL::INFO
+#define LOG_LVL LOG_LEVEL::CRITICAL
 
 void LOG_PRINTF(const char *format, ...);
 
