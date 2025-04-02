@@ -105,7 +105,7 @@ void handle_sigusr1(int sig);
     gc_stop(pthread_self());
 
 #define GC_FREE(ptr)                                                        \
-    gc_get_handler().gc_free(pthread_self(), (void*)(ptr))
+    gc_get_handler().gc_free(pthread_self(), (void*)(ptr));
 
 #define GC_GET_ALLOCS_CNT()                                                 \
     gc_get_allocs_cnt(pthread_self());

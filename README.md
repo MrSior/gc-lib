@@ -94,13 +94,13 @@ int main(int argc, char* argv[]) {
 
 // Поток, который "создаёт мусор". Каждые 2 сек. выделяет память и теряет указаетль.
 void* first_thread_func(void* arg) {
-    gc_handler* handler = gc_create(pthread_self());
+    gc_handler handler = gc_create(pthread_self());
     int* val;
-    handler->mark_root(pthread_self(), &val);
+    handler.mark_root(pthread_self(), &val);
     
     for (size_t i = 0; i < 3; i++)
     {
-        handler->gc_malloc(pthread_self(), (void**)&val, 4);
+        handler.gc_malloc(pthread_self(), (void**)&val, 4);
         *val = 123;
         sleep(2);
     }
@@ -112,10 +112,10 @@ void* first_thread_func(void* arg) {
 
 // Поток, который вызовет глобальную сборку мусора.
 void* second_thread_func(void* arg) {
-    gc_handler* handler = gc_create(pthread_self());
+    gc_handler handler = gc_create(pthread_self());
     sleep(5);
 
-    handler->collect(pthread_self(), GLOBAL);
+    handler.collect(pthread_self(), GLOBAL);
     gc_stop(pthread_self());
 
     printf("Thread with ID: %lu (CALLER CLEANING) end\n", (unsigned long)pthread_self());
@@ -167,10 +167,12 @@ int main(int argc, char* argv[]) {
 ### Полезные макросы
 | Макрос | Код |
 |--------|-----|
-| ```GC_CREATE()``` | ```gc_handler* __handler = gc_create(pthread_self());``` |
-| ```GC_MALLOC(val, size) ``` | ```__handler->gc_malloc(pthread_self(), (void**)(val), (size));``` |
-| ```GC_MARK_ROOT(val)``` | ```__handler->mark_root(pthread_self(), (void*)(&(val)));``` |
-| ```GC_COLLECT(flag)``` | ```__handler->collect(pthread_self(), (flag));``` |
+| ```GC_CREATE()``` | ```gc_create(pthread_self());``` |
+| ```GC_MALLOC(val, size) ``` | ```gc_get_handler().gc_malloc(pthread_self(), (void**)(&(val)), (size));``` |
+| ```GC_FREE()``` | ```gc_get_handler().gc_free(pthread_self(), (void*)(ptr));``` |
+| ```GC_MARK_ROOT(val)``` | ```gc_get_handler().mark_root(pthread_self(), (void*)(&(val)));``` |
+| ```GC_UNMARK_ROOT(val)``` | ```gc_get_handler().unmark_root(pthread_self(), (void*)(&(val)));``` |
+| ```GC_COLLECT(flag)``` | ```gc_get_handler().collect(pthread_self(), (flag));``` |
 | ```GC_STOP()``` | ```gc_stop(pthread_self());``` |
 
 ## Важно
