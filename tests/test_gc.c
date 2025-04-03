@@ -194,7 +194,7 @@ char* test_gc_thread_local_collection() {
     int allocs_after = GC_GET_ALLOCS_CNT();
     
     // Check that losted and not marked as root allocations were collectes 
-    MU_ASSERT(allocs_before - allocs_after == 2, "Garbage collection failed");
+    MU_ASSERT(allocs_before - allocs_after == 2, "Thread-local garbage collection failed");
     
     GC_STOP();
     return NULL;
@@ -315,38 +315,62 @@ char* test_gc_stress() {
 
 int tests_run = 0;
 
-static char* test_suite()
-{
-    printf("=====[ GC tests ]=====\n");
-    
+static char* basic_functionality_test_suite() {
     // Basic functionality tests
     MU_RUN_TEST(test_gc_init_shutdown);
     MU_RUN_TEST(test_gc_malloc);
     MU_RUN_TEST(test_gc_malloc_free);
     MU_RUN_TEST(test_gc_mark_root);
     MU_RUN_TEST(test_gc_complex_objects);
-    
+
+    return NULL;
+}
+
+static char* collection_test_suite() {
     // Collection tests
     MU_RUN_TEST(test_gc_unmark_root);
     MU_RUN_TEST(test_gc_thread_local_collection);
     MU_RUN_TEST(test_gc_global_collection);
-    
+
+    return NULL;
+}
+
+static char* advanced_test_suite() {
     // Advanced tests
     MU_RUN_TEST(test_gc_large_allocation);
     MU_RUN_TEST(test_gc_stress);
-    
-    return 0;
+
+    return NULL;
 }
 
-int main()
-{
+int run_test_suite(const char* name, char*(*test_suite)()) {
+    printf("%s: ", name);
     char *result = test_suite();
     if (result) {
-        printf("%s\n", result);
-    } else {
+        printf("FAILED\n");
+        printf("\t%s\n", result);
+        return 0;
+    }
+
+    printf("OK\n");
+    return 1;
+}
+
+int main() {
+    printf("=====[ GC tests ]=====\n");
+
+    int isAllPassed = 1;
+    isAllPassed &= run_test_suite("Basic functionality", basic_functionality_test_suite);
+    isAllPassed &= run_test_suite("Collection", collection_test_suite);
+    isAllPassed &= run_test_suite("Advanced", advanced_test_suite);
+
+    printf("======================\n");
+    if (isAllPassed)
+    {
         printf("ALL TESTS PASSED\n");
     }
     printf("Tests run: %d\n", tests_run);
     printf("======================\n");
-    return result != NULL;
+    
+    return !isAllPassed;
 }
