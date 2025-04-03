@@ -11,6 +11,9 @@ typedef struct test_node {
 
 // Test basic GC initialization and shutdown
 char* test_gc_init_shutdown() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
     GC_CREATE();
     GC_STOP();
     
@@ -21,6 +24,9 @@ char* test_gc_init_shutdown() {
 
 // Test basic memory allocation
 char* test_gc_malloc() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+    
     GC_CREATE();
     
     int* ptr = NULL;
@@ -37,6 +43,9 @@ char* test_gc_malloc() {
 
 // Test memory allocation and explicit deallocation
 char* test_gc_malloc_free() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
     GC_CREATE();
     
     int* ptr = NULL;
@@ -64,6 +73,9 @@ char* test_gc_malloc_free() {
 
 // Test marking objects as roots
 char* test_gc_mark_root() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
     GC_CREATE();
     
     int* ptr = NULL;
@@ -92,6 +104,9 @@ char* test_gc_mark_root() {
 
 
 char* test_gc_unmark_root() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
     GC_CREATE();
     
     int* ptr = NULL;
@@ -128,6 +143,9 @@ char* test_gc_unmark_root() {
 
 // Test garbage collection with complex object graph
 char* test_gc_complex_objects() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
     GC_CREATE();
     
     // Create a linked list
@@ -171,6 +189,9 @@ char* test_gc_complex_objects() {
 
 // Test thread-local garbage collection
 char* test_gc_thread_local_collection() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
     GC_CREATE();
     
     // Allocate several objects
@@ -219,6 +240,9 @@ void* thread_func(void* arg) {
 
 // Test multi-threaded GC
 char* test_gc_global_collection() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
     const int num_thread = 9;
     pthread_t threads[num_thread];
 
@@ -260,8 +284,40 @@ char* test_gc_global_collection() {
     return NULL;
 }
 
+// Backgroung collection test
+char* test_gc_background_collection() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
+    GC_CREATE();
+
+    // Allocate a large block of memory
+    char* large_block = NULL;
+    size_t large_size = 1024 * 1024; // 1MB
+    GC_MALLOC(large_block, large_size);
+
+    /*
+        Now the amount of allocated memory has
+        reached the garbage sweep factor (initally 1024), 
+        so the next allocation will start 
+        garbage collection.
+    */
+
+    int allocs_before = GC_GET_ALLOCS_CNT();
+    GC_MALLOC(large_block, large_size);
+    int allocs_after = GC_GET_ALLOCS_CNT();
+
+    MU_ASSERT(allocs_before == allocs_after, "Background collection failed");
+
+    GC_STOP();
+    return NULL;
+}
+
 // Large allocation test
 char* test_gc_large_allocation() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
     GC_CREATE();
     
     // Allocate a large block of memory
@@ -285,6 +341,9 @@ char* test_gc_large_allocation() {
 
 // Stress test with many allocations
 char* test_gc_stress() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+    
     GC_CREATE();
     
     #define STRESS_COUNT 1000
@@ -331,6 +390,7 @@ static char* collection_test_suite() {
     MU_RUN_TEST(test_gc_unmark_root);
     MU_RUN_TEST(test_gc_thread_local_collection);
     MU_RUN_TEST(test_gc_global_collection);
+    MU_RUN_TEST(test_gc_background_collection);
 
     return NULL;
 }

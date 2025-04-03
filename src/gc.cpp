@@ -119,7 +119,7 @@ public:
     }
 
     void gc_malloc(size_t size, void*& res, EERROR& error) {
-        if (cur_mem_capacity == sweep_factor)
+        if (cur_mem_capacity >= sweep_factor)
         {
             LOG_INFO("%s", "GC backgroung collection");
             collect();
