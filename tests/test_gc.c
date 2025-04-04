@@ -343,7 +343,7 @@ char* test_gc_large_allocation() {
 char* test_gc_stress() {
     // Stopping to make sure a new garbage collector is going to be created
     GC_STOP();
-    
+
     GC_CREATE();
     
     #define STRESS_COUNT 1000
@@ -367,6 +367,42 @@ char* test_gc_stress() {
         int* ptr = (int*)pointers[i];
         MU_ASSERT(*ptr == i, "Root value corrupted in stress test");
     }
+    
+    GC_STOP();
+    return NULL;
+}
+
+// Test passing invalid argument to gc_handler
+char* test_gc_passing_inval() {
+    // Stopping to make sure a new garbage collector is going to be created
+    GC_STOP();
+
+    gc_handler handler = GC_CREATE();
+
+    int* val;
+    errno = 0;
+    handler.gc_malloc(pthread_self() + 1, (void**)&val, 4);
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+
+    errno = 0;
+    handler.gc_free(pthread_self() + 1, &val);
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+
+    errno = 0;
+    handler.mark_root(pthread_self() + 1, &val);
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+
+    errno = 0;
+    handler.unmark_root(pthread_self() + 1, &val);
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+
+    errno = 0;
+    handler.collect(pthread_self() + 1, THREAD_LOCAL);
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+
+    errno = 0;
+    handler.collect(pthread_self(), 4);
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
     
     GC_STOP();
     return NULL;
@@ -403,6 +439,13 @@ static char* advanced_test_suite() {
     return NULL;
 }
 
+static char* error_handling_test_suite() {
+    // Error handling tests
+    MU_RUN_TEST(test_gc_passing_inval);
+
+    return NULL;
+}
+
 int run_test_suite(const char* name, char*(*test_suite)()) {
     printf("%s: ", name);
     char *result = test_suite();
@@ -423,6 +466,7 @@ int main() {
     isAllPassed &= run_test_suite("Basic functionality", basic_functionality_test_suite);
     isAllPassed &= run_test_suite("Collection", collection_test_suite);
     isAllPassed &= run_test_suite("Advanced", advanced_test_suite);
+    isAllPassed &= run_test_suite("Error handling", error_handling_test_suite);
 
     printf("======================\n");
     if (isAllPassed)

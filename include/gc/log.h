@@ -7,6 +7,7 @@
 #include <array>
 
 enum class LOG_LEVEL {
+    QUIET,
     CRITICAL,
     WARNING,
     INFO,

@@ -12,7 +12,7 @@
 #include <limits.h>
 
 #undef LOG_LVL
-#define LOG_LVL LOG_LEVEL::CRITICAL
+#define LOG_LVL LOG_LEVEL::QUIET
 
 #define MAX_MEM_CAPACITY UINT64_MAX
 #define INITIAL_SWEEP_FACTOR 1024
@@ -205,7 +205,9 @@ private:
         if (!reg_.contains(tid))
         {
             LOG_CRITICAL("Thread with id: %lld does not have GC", (long long int)tid);
-            std::exit(EXIT_FAILURE);
+            // std::exit(EXIT_FAILURE);
+            errno = EINVAL;
+            return NULL;
         }
         
         return reg_[tid];
@@ -274,7 +276,8 @@ private:
         if (error == EERROR::NOMEM)
         {
             LOG_CRITICAL("%s", "Heap overflow");
-            std::exit(EXIT_FAILURE);
+            // std::exit(EXIT_FAILURE);
+            errno = ENOMEM;
         }
     }
 public:
@@ -331,6 +334,8 @@ public:
 
     void do_malloc(pthread_t tid, void*& dest, size_t size) {
         gc* thread_gc = get_gc(tid);
+        if (thread_gc == NULL) { return; }
+        
         
         EERROR error;
         auto task_id = tpool_.add_task([thread_gc](size_t size, void*& res, EERROR& err) -> void {
@@ -350,6 +355,7 @@ public:
 
     void do_free(pthread_t tid, void* addr) {
         gc* thread_gc = get_gc(tid);
+        if (thread_gc == NULL) { return; }
 
         auto task_id = tpool_.add_task([thread_gc](void* addr) { thread_gc->gc_free(addr); }, addr);
         tpool_.wait(task_id);
@@ -357,6 +363,7 @@ public:
 
     void do_root_marking(pthread_t tid, void* addr) {
         gc* thread_gc = get_gc(tid);
+        if (thread_gc == NULL) { return; }
 
         auto task_id = tpool_.add_task([thread_gc](void* addr) { thread_gc->mark_root(addr); }, addr);
         tpool_.wait(task_id);
@@ -364,6 +371,7 @@ public:
 
     void do_root_unmarking(pthread_t tid, void* addr) {
         gc* thread_gc = get_gc(tid);
+        if (thread_gc == NULL) { return; }
 
         auto task_id = tpool_.add_task([thread_gc](void* addr) { thread_gc->unmark_root(addr); }, addr);
         tpool_.wait(task_id);
@@ -377,9 +385,12 @@ public:
         } else if (flag == THREAD_LOCAL)
         {
             gc* thread_gc = get_gc(tid);
+            if (thread_gc == NULL) { return; }
 
             auto task_id = tpool_.add_task([thread_gc]() { thread_gc->collect(); });
             tpool_.wait(task_id);
+        } else {
+            errno = EINVAL;
         }
     }
 };
@@ -415,30 +426,11 @@ void stop_world_sig_init() {
     sa.sa_flags = SA_RESTART;
 
     if (sigaction(SIGUSR1, &sa, NULL) == -1) {
-        LOG_CRITICAL("%s", "Sigaction: Failed to bind SIGUSR1");
-        exit(EXIT_FAILURE);
+        char buf[256];
+        strerror_r(errno, buf, sizeof(buf));
+        LOG_CRITICAL("Sigaction: Failed to bind SIGUSR1: %s", buf);
+        // exit(EXIT_FAILURE);
     }
-}
-
-gc_handler gc_create(pthread_t tid) {
-    if (manager.contains(tid))
-    {
-        LOG_WARNING("Thread with id: %lld already has GC", (long long int)tid);
-        gc_handler handler;
-        return handler;
-    }
-
-    manager.add_to_reg(tid, new gc);
-    gc_handler handler;
-
-    handler.gc_malloc = &manager_malloc_wrapper;
-    handler.gc_free = &manager_free_wrapper;
-    handler.mark_root = &manager_mark_root__wrapper;
-    handler.unmark_root = &manager_unmark_root_wrapper;
-    handler.collect = &manager_collect_wrapper;
-    stop_world_sig_init();
-
-    return handler;
 }
 
 gc_handler gc_get_handler() {
@@ -453,6 +445,26 @@ gc_handler gc_get_handler() {
     return handler;
 }
 
+gc_handler gc_create(pthread_t tid) {
+    if (manager.contains(tid))
+    {
+        LOG_WARNING("Thread with id: %lld already has GC", (long long int)tid);
+        gc_handler handler;
+        return handler;
+    }
+
+    stop_world_sig_init();
+    if (errno == EFAULT || errno == EINVAL)
+    {
+        LOG_CRITICAL("%s", "Failed to create GC due to error in sigaction");
+        return gc_get_handler();
+    }
+
+    manager.add_to_reg(tid, new gc);
+
+    return gc_get_handler();
+}
+
 void gc_stop(pthread_t tid) {
     manager.erase_from_reg(tid);
 }
@@ -461,7 +473,9 @@ unsigned long long int gc_get_allocs_cnt(pthread_t tid) {
     if (!manager.contains(tid))
     {
         LOG_CRITICAL("Thread with id: %lld does not have GC", (long long int)tid);
-        exit(EXIT_FAILURE);
+        // exit(EXIT_FAILURE);
+        errno = EINVAL;
+        return 0;
     }
     return manager.get_gc_allocs_cnt(tid);
 }
@@ -474,7 +488,9 @@ unsigned long long int gc_get_roots_cnt(pthread_t tid) {
     if (!manager.contains(tid))
     {
         LOG_CRITICAL("Thread with id: %lld does not have GC", (long long int)tid);
-        exit(EXIT_FAILURE);
+        // exit(EXIT_FAILURE);
+        errno = EINVAL;
+        return 0;
     }
     return manager.get_gc_roots_cnt(tid);
 }

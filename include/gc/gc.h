@@ -63,6 +63,7 @@ extern "C" {
 #include <pthread.h>
 #include <signal.h>
 #include <string.h>
+#include <errno.h>
 
 #define GLOBAL 1
 #define THREAD_LOCAL 0
