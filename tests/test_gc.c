@@ -386,23 +386,23 @@ char* test_gc_passing_inval() {
 
     errno = 0;
     handler.gc_free(pthread_self() + 1, &val);
-    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_free() failed");
 
     errno = 0;
     handler.mark_root(pthread_self() + 1, &val);
-    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to mark_root() failed");
 
     errno = 0;
     handler.unmark_root(pthread_self() + 1, &val);
-    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to unmark_root() failed");
 
     errno = 0;
     handler.collect(pthread_self() + 1, THREAD_LOCAL);
-    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid id argument to collect() failed");
 
     errno = 0;
     handler.collect(pthread_self(), 4);
-    MU_ASSERT(errno == EINVAL, "Test with passign invalid argument to gc_malloc() failed");
+    MU_ASSERT(errno == EINVAL, "Test with passign invalid flag argument to collect() failed");
     
     GC_STOP();
     return NULL;
