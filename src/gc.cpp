@@ -427,7 +427,10 @@ void stop_world_sig_init() {
 
     if (sigaction(SIGUSR1, &sa, NULL) == -1) {
         char buf[256];
-        strerror_r(errno, buf, sizeof(buf));
+        if (strerror_r(errno, buf, sizeof(buf)) == -1) {
+            LOG_CRITICAL("%s", "Sigaction: Failed to bind SIGUSR1");
+            return;
+        }
         LOG_CRITICAL("Sigaction: Failed to bind SIGUSR1: %s", buf);
         // exit(EXIT_FAILURE);
     }

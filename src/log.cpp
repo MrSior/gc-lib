@@ -29,4 +29,4 @@ void LOG_PRINTF(const char *format, ...) {
     printf("\n");
 }
 
-const char * log_level_string [] = { "CRIT", "WARN", "INFO", "DEBG" };
+const char * log_level_string [] = { "", "CRIT", "WARN", "INFO", "DEBG" };
