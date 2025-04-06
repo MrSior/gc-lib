@@ -16,8 +16,6 @@ enum class LOG_LEVEL {
 
 #define LOG_LVL LOG_LEVEL::CRITICAL
 
-void LOG_PRINTF(const char *format, ...);
-
 extern const char* log_level_string[];
 
 #define LOG(level, fmt, ...)                                                                                                            \

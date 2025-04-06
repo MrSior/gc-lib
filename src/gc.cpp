@@ -12,7 +12,7 @@
 #include <limits.h>
 
 #undef LOG_LVL
-#define LOG_LVL LOG_LEVEL::QUIET
+#define LOG_LVL LOG_LEVEL::INFO
 
 #define MAX_MEM_CAPACITY UINT64_MAX
 #define INITIAL_SWEEP_FACTOR 1024
