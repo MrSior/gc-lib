@@ -14,7 +14,7 @@ target_compile_options(gc-lib PRIVATE -Wall)
 
 target_include_directories(gc-lib PUBLIC include)
 
-include(${CMAKE_SOURCE_DIR}/gc-lib/cmake/FindCatch2.cmake)
+# include(${CMAKE_SOURCE_DIR}/gc-lib/cmake/FindCatch2.cmake)
 # enable_testing()
 
 # add_executable(lib-tests-main tests/test.cpp)
